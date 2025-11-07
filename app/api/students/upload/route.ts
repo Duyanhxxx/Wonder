@@ -598,10 +598,26 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
 
     const rowText = row.map((cell: any) => String(cell || '').trim()).join(' ').toLowerCase();
 
-    // Tìm tháng/năm từ header (ví dụ: "Tháng 10/2025" hoặc "01/10/2025" trong cell B1)
+    // Tìm tháng/năm từ header (ví dụ: "Tháng 10/2025", "01/10/2025", hoặc "Wed Oct 01 2025 14:00:00 GMT+0700")
     // Tìm trong từng cell để chính xác hơn
     for (let col = 0; col < row.length; col++) {
       const cell = String(row[col] || '').trim();
+      
+      // Tìm pattern "Wed Oct 01 2025 14:00:00 GMT+0700" hoặc format Date string
+      // Format: "Wed Oct 01 2025" hoặc "Mon Oct 01 2025 14:00:00 GMT+0700"
+      const dateStringMatch = cell.match(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{4})/i);
+      if (dateStringMatch) {
+        const monthNames: { [key: string]: string } = {
+          'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+          'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+          'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
+        };
+        const month = monthNames[dateStringMatch[2].toLowerCase()] || '01';
+        const day = dateStringMatch[3].padStart(2, '0');
+        const year = dateStringMatch[4];
+        thangNam = `${day}/${month}/${year}`; // Format: dd/mm/yyyy
+        break;
+      }
       
       // Tìm pattern "Tháng 10/2025" hoặc "Tháng10/2025" - parse thành "01/10/2025"
       const thangMatch = cell.match(/tháng\s*(\d{1,2})\/(\d{4})/i);
