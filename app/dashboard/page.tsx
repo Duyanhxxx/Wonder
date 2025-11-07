@@ -1,7 +1,5 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -18,30 +16,65 @@ export default function DashboardPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const checkAuth = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/me');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const res = await fetch('/api/auth/me', {
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
       if (!res.ok) {
-        router.push('/login');
+        console.error('Auth check failed:', res.status, res.statusText);
+        setLoading(false);
+        if (res.status === 401) {
+          router.push('/login');
+        } else {
+          setError('Lỗi xác thực. Vui lòng thử lại.');
+        }
         return;
       }
       const data = await res.json();
       setUser(data.user);
-    } catch (error) {
-      router.push('/login');
+    } catch (error: any) {
+      console.error('Auth check error:', error);
+      setLoading(false);
+      if (error.name === 'AbortError') {
+        setError('Kết nối timeout. Vui lòng kiểm tra kết nối mạng và thử lại.');
+      } else {
+        setError('Lỗi kết nối. Vui lòng thử lại.');
+      }
+      // Don't redirect on network errors, let user see the error
     }
   }, [router]);
 
   const loadClasses = useCallback(async () => {
     try {
-      const res = await fetch('/api/classes');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const res = await fetch('/api/classes', {
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
       if (res.ok) {
         const data = await res.json();
         setClasses(data.classes || []);
+      } else {
+        console.error('Error loading classes:', res.status, res.statusText);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading classes:', error);
+      if (error.name === 'AbortError') {
+        console.error('Load classes timeout');
+      }
     } finally {
       setLoading(false);
     }
@@ -157,7 +190,38 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-xl">Đang tải...</div>
+        <div className="text-center">
+          <div className="text-xl mb-4">Đang tải...</div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center max-w-md p-6 bg-white rounded-lg shadow-lg">
+          <div className="text-red-600 text-xl mb-4">⚠️ Lỗi</div>
+          <div className="text-gray-700 mb-4">{error}</div>
+          <button
+            onClick={() => {
+              setError(null);
+              setLoading(true);
+              checkAuth();
+              loadClasses();
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Thử lại
+          </button>
+          <button
+            onClick={() => router.push('/login')}
+            className="ml-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+          >
+            Đăng nhập lại
+          </button>
+        </div>
       </div>
     );
   }
