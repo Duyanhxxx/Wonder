@@ -34,24 +34,139 @@ export async function POST(request: NextRequest) {
     let workbook: XLSX.WorkBook;
     
     if (isCsv) {
-      // CSV là format đơn giản nhất và dễ parse nhất
+      // CSV có thể chứa nhiều lớp, mỗi lớp được phân cách bởi dòng "=== ... ==="
+      // Cần parse thủ công để tách thành các sections
       const text = await file.text();
-      try {
-        // XLSX có thể đọc CSV trực tiếp
-        workbook = XLSX.read(text, { 
-          type: 'string',
-          FS: ',', // Field separator (dấu phẩy)
-        });
+      const lines = text.split('\n');
+      
+      // Tách CSV thành các sections (mỗi section là một lớp)
+      const sections: { header: string; data: string[][] }[] = [];
+      let currentSection: { header: string; data: string[][] } | null = null;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
         
-        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        // Kiểm tra xem có phải dòng phân cách lớp không (format: "=== ... ===")
+        const sectionMatch = line.match(/^"=== (.+?) ==="$/);
+        if (sectionMatch) {
+          // Lưu section cũ nếu có
+          if (currentSection) {
+            sections.push(currentSection);
+          }
+          // Bắt đầu section mới
+          currentSection = {
+            header: sectionMatch[1],
+            data: []
+          };
+        } else if (currentSection) {
+          // Parse dòng CSV (xử lý quotes và commas)
+          const row = parseCSVLine(line);
+          if (row.length > 0) {
+            currentSection.data.push(row);
+          }
+        }
+      }
+      
+      // Lưu section cuối cùng
+      if (currentSection) {
+        sections.push(currentSection);
+      }
+      
+      // Nếu không tìm thấy sections (không có dòng "==="), xử lý như CSV thông thường
+      if (sections.length === 0) {
+        try {
+          workbook = XLSX.read(text, { 
+            type: 'string',
+            FS: ',',
+          });
+          
+          if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+            return NextResponse.json({ 
+              error: 'Không tìm thấy dữ liệu trong file CSV.' 
+            }, { status: 400 });
+          }
+        } catch (error: any) {
           return NextResponse.json({ 
-            error: 'Không tìm thấy dữ liệu trong file CSV.' 
+            error: `Lỗi khi đọc file CSV: ${error.message}` 
           }, { status: 400 });
         }
-      } catch (error: any) {
-        return NextResponse.json({ 
-          error: `Lỗi khi đọc file CSV: ${error.message}` 
-        }, { status: 400 });
+      } else {
+        // Xử lý từng section như một lớp riêng biệt
+        const existingStudents = await getStudents();
+        const existingClasses = await getClasses();
+        const allNewStudents: Student[] = [];
+        const newClasses: ClassInfo[] = [];
+        
+        for (const section of sections) {
+          // Bỏ qua section mẫu (có "MẪU" trong header)
+          if (section.header.includes('MẪU') || section.header === '.' || !section.header.trim()) {
+            continue;
+          }
+          
+          if (section.data.length < 2) continue;
+          
+          // Parse thông tin lớp từ các dòng đầu
+          const classInfo = parseClassInfo(section.data, section.header);
+          
+          // Tìm hoặc tạo class
+          let classId: string;
+          const existingClass = existingClasses.find(
+            c => c.tenLop === classInfo.tenLop && c.thangNam === classInfo.thangNam
+          );
+          
+          if (existingClass) {
+            classId = existingClass.id;
+            existingClass.giaoVien = classInfo.giaoVien;
+            existingClass.siSo = classInfo.siSo;
+            existingClass.thoiGianHoc = classInfo.thoiGianHoc;
+            existingClass.trungTam = classInfo.trungTam;
+            existingClass.updatedAt = new Date().toISOString();
+          } else {
+            classId = uuidv4();
+            const newClass: ClassInfo = {
+              id: classId,
+              ...classInfo,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+            newClasses.push(newClass);
+            existingClasses.push(newClass);
+          }
+          
+          // Đếm số học sinh hiện có trong lớp này
+          const studentsInClass = existingStudents.filter(s => s.classId === classId);
+          let classStudentCount = studentsInClass.length;
+          
+          // Parse students từ section này
+          const sectionStudents = parseStudentsFromData(section.data, classId, studentsInClass, allNewStudents, classStudentCount);
+          allNewStudents.push(...sectionStudents);
+          
+          // Cập nhật classStudentCount cho các section tiếp theo
+          classStudentCount += sectionStudents.length;
+        }
+        
+        if (allNewStudents.length === 0) {
+          return NextResponse.json({ 
+            error: 'Không tìm thấy dữ liệu học sinh hợp lệ trong file CSV' 
+          }, { status: 400 });
+        }
+        
+        // Lưu classes mới
+        if (newClasses.length > 0) {
+          await saveClasses(existingClasses);
+        }
+        
+        // Thêm vào database
+        const allStudents = [...existingStudents, ...allNewStudents];
+        await saveStudents(allStudents);
+        
+        return NextResponse.json({
+          message: `Đã thêm ${allNewStudents.length} học sinh từ ${sections.length} lớp thành công`,
+          count: allNewStudents.length,
+          sheetsProcessed: sections.length,
+          classesCreated: newClasses.length,
+          classes: newClasses.map(c => ({ id: c.id, tenLop: c.tenLop, giaoVien: c.giaoVien, thangNam: c.thangNam })),
+        });
       }
     } else if (isHtml) {
       // Đọc file HTML
@@ -469,8 +584,24 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
   let thoiGianHoc = '';
   let trungTam = '';
 
-  // Parse từ các dòng đầu (0-3)
-  for (let i = 0; i < Math.min(4, jsonData.length); i++) {
+  // Nếu sheetName có format "6A9-Toán-C. Phượng", parse từ đó
+  // Format: "Lớp-Môn-Giáo viên" hoặc "Lớp-Môn-G.Viên" hoặc "K8A9-A.Văn-C. Lê"
+  // Có thể có 2 hoặc 3 phần được phân cách bởi dấu "-"
+  const headerParts = sheetName.split('-').map(p => p.trim());
+  if (headerParts.length >= 2) {
+    // Phần đầu tiên là tên lớp
+    tenLop = headerParts[0].toUpperCase();
+    // Phần cuối cùng thường là giáo viên (có thể có "C." hoặc "Cô" hoặc "Thầy")
+    if (headerParts.length >= 3) {
+      giaoVien = headerParts.slice(2).join('-').trim();
+    } else if (headerParts.length === 2) {
+      // Nếu chỉ có 2 phần, phần thứ 2 có thể là giáo viên hoặc môn
+      // Ưu tiên parse từ dữ liệu thực tế trong file
+    }
+  }
+
+  // Parse từ các dòng đầu (0-10 để tìm thông tin đầy đủ)
+  for (let i = 0; i < Math.min(10, jsonData.length); i++) {
     const row = jsonData[i];
     if (!row || row.length === 0) continue;
 
@@ -571,6 +702,231 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
     thoiGianHoc: thoiGianHoc || '',
     trungTam: trungTam || 'TRUNG TÂM BDVH & NGOẠI NGỮ WONDER',
   };
+}
+
+// Helper function để parse một dòng CSV (xử lý quotes và commas)
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        // Escaped quote
+        current += '"';
+        i++;
+      } else {
+        // Toggle quote state
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      // End of field
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  
+  // Add last field
+  result.push(current);
+  
+  return result;
+}
+
+// Helper function để parse students từ data array
+function parseStudentsFromData(
+  jsonData: any[][],
+  classId: string,
+  studentsInClass: Student[],
+  allNewStudents: Student[],
+  classStudentCount: number
+): Student[] {
+  const newStudents: Student[] = [];
+  let currentClassStudentCount = classStudentCount;
+  
+  // Tìm dòng header (có "Họ và tên" hoặc "TT")
+  let headerRowIndex = -1;
+  let dataStartIndex = -1;
+
+  for (let i = 0; i < jsonData.length; i++) {
+    const row = jsonData[i];
+    if (!row || row.length === 0) continue;
+    
+    const firstCell = String(row[0] || '').trim().toLowerCase();
+    const secondCell = String(row[1] || '').trim().toLowerCase();
+    
+    if (firstCell === 'tt' || secondCell.includes('họ và tên') || secondCell.includes('tên')) {
+      headerRowIndex = i;
+      dataStartIndex = i + 2;
+      break;
+    }
+  }
+
+  if (headerRowIndex === -1) {
+    for (let i = 0; i < jsonData.length; i++) {
+      const row = jsonData[i];
+      if (row && row.length > 0) {
+        const firstCell = String(row[0] || '').trim().toLowerCase();
+        if (firstCell === 'tt') {
+          headerRowIndex = i;
+          dataStartIndex = i + 2;
+          break;
+        }
+      }
+    }
+  }
+
+  if (dataStartIndex === -1) {
+    dataStartIndex = 6;
+  }
+
+  // Tìm cột index
+  let sttColIndex = -1;
+  let hoVaTenColIndex = -1;
+  let ngayVaoColIndex = -1;
+  let soDienThoaiColIndex = -1;
+  let ngayDongColIndex = -1;
+  let kyTenColIndex = -1;
+
+  if (headerRowIndex >= 0 && headerRowIndex < jsonData.length) {
+    const headerRow = jsonData[headerRowIndex];
+    for (let col = 0; col < headerRow.length; col++) {
+      const cell = String(headerRow[col] || '').trim().toLowerCase();
+      
+      if ((cell === 'tt' || cell === 'stt') && sttColIndex === -1) {
+        sttColIndex = col;
+      } else if ((cell.includes('họ và tên') || (cell.includes('tên') && !cell.includes('ký'))) && hoVaTenColIndex === -1) {
+        hoVaTenColIndex = col;
+      } else if (cell.includes('ngày vào') && ngayVaoColIndex === -1) {
+        ngayVaoColIndex = col;
+      } else if ((cell.includes('sđt') || cell.includes('số điện thoại') || cell.includes('phone')) && soDienThoaiColIndex === -1) {
+        soDienThoaiColIndex = col;
+      } else if (cell.includes('ngày đóng') && ngayDongColIndex === -1) {
+        ngayDongColIndex = col;
+      } else if (cell.includes('ký tên') || cell.includes('ký') && kyTenColIndex === -1) {
+        kyTenColIndex = col;
+      }
+    }
+  }
+
+  // Fallback logic
+  if (sttColIndex === -1) sttColIndex = 0;
+  if (hoVaTenColIndex === -1) hoVaTenColIndex = sttColIndex + 1;
+  if (ngayVaoColIndex === -1) ngayVaoColIndex = hoVaTenColIndex + 2;
+  if (soDienThoaiColIndex === -1) soDienThoaiColIndex = ngayVaoColIndex + 1;
+  if (ngayDongColIndex === -1) ngayDongColIndex = soDienThoaiColIndex + 1;
+  if (kyTenColIndex === -1) kyTenColIndex = ngayDongColIndex + 1;
+
+  for (let i = dataStartIndex; i < jsonData.length; i++) {
+    const row = jsonData[i];
+    if (!row || row.length < 2) continue;
+
+    const columns = row.map((cell: any) => {
+      if (cell === null || cell === undefined) return '';
+      return String(cell).trim();
+    });
+
+    const sttValue = columns[sttColIndex] || '';
+    const hoVaTen = columns[hoVaTenColIndex] || '';
+    const ngayVao = columns[ngayVaoColIndex] || '';
+    const soDienThoai = columns[soDienThoaiColIndex] || '';
+    const ngayDong = columns[ngayDongColIndex] || '';
+    const kyTen = columns[kyTenColIndex] || '';
+
+    let stt = parseInt(sttValue);
+    if (isNaN(stt) || stt <= 0) {
+      currentClassStudentCount++;
+      stt = currentClassStudentCount;
+    } else {
+      const existingSttInClass = [...studentsInClass, ...allNewStudents.filter(s => s.classId === classId), ...newStudents]
+        .map(s => s.stt);
+      if (existingSttInClass.includes(stt)) {
+        currentClassStudentCount++;
+        stt = currentClassStudentCount;
+      } else {
+        if (stt > currentClassStudentCount) {
+          currentClassStudentCount = stt;
+        }
+      }
+    }
+
+    if (!hoVaTen) continue;
+    if (hoVaTen.toLowerCase().includes('tổng') || hoVaTen.includes('#REF!')) continue;
+
+    let attendanceStartCol = kyTenColIndex + 1;
+    if (headerRowIndex >= 0 && headerRowIndex + 1 < jsonData.length) {
+      const subHeaderRow = jsonData[headerRowIndex + 1];
+      for (let col = kyTenColIndex + 1; col < subHeaderRow.length; col++) {
+        const cell = String(subHeaderRow[col] || '').trim().toLowerCase();
+        if (cell === 'b1' || cell.includes('điểm danh')) {
+          attendanceStartCol = col;
+          break;
+        }
+      }
+    }
+
+    const diemDanh = {
+      B1: checkAttendance(columns[attendanceStartCol]),
+      B2: checkAttendance(columns[attendanceStartCol + 1]),
+      B3: checkAttendance(columns[attendanceStartCol + 2]),
+      B4: checkAttendance(columns[attendanceStartCol + 3]),
+      B5: checkAttendance(columns[attendanceStartCol + 4]),
+      B6: checkAttendance(columns[attendanceStartCol + 5]),
+      B7: checkAttendance(columns[attendanceStartCol + 6]),
+      B8: checkAttendance(columns[attendanceStartCol + 7]),
+    };
+
+    let ghiChuCol = attendanceStartCol + 8;
+    for (let j = attendanceStartCol + 8; j < columns.length; j++) {
+      if (columns[j] && columns[j].length > 0) {
+        if (isNaN(parseFloat(columns[j]))) {
+          ghiChuCol = j;
+          break;
+        }
+      }
+    }
+
+    const ghiChu = columns[ghiChuCol] || '';
+    
+    let chietKhau = 0;
+    let phanTram = 0;
+    for (let j = ghiChuCol + 1; j < columns.length; j++) {
+      const val = parseFloat(columns[j] || '0');
+      if (val > 0) {
+        if (chietKhau === 0) {
+          chietKhau = val;
+        } else if (phanTram === 0) {
+          phanTram = val;
+          break;
+        }
+      }
+    }
+
+    const newStudent: Student = {
+      id: uuidv4(),
+      classId,
+      stt,
+      hoVaTen,
+      ngayVao,
+      soDienThoai,
+      ngayDong,
+      kyTen,
+      diemDanh,
+      ghiChu,
+      chietKhau,
+      phanTram,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    newStudents.push(newStudent);
+  }
+  
+  return newStudents;
 }
 
 // Helper function để check attendance

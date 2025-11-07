@@ -12,8 +12,8 @@ async function getSql() {
     throw new Error('POSTGRES_URL environment variable is not set');
   }
 
-  // Kiểm tra xem có dùng Neon không (Neon connection string thường có @neon.tech hoặc neon.tech)
-  const isNeon = postgresUrl.includes('@neon.tech') || postgresUrl.includes('neon.tech') || postgresUrl.includes('neon.tech');
+  // Kiểm tra xem có dùng Neon không (Neon connection string thường có neon.tech hoặc aws.neon.tech)
+  const isNeon = postgresUrl.includes('neon.tech') || postgresUrl.includes('@neon.tech');
   
   if (isNeon) {
     // Dùng Neon
