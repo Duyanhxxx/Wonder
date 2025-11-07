@@ -204,3 +204,28 @@ export async function saveClasses(classes: ClassInfo[]): Promise<void> {
   );
 }
 
+export async function deleteClass(classId: string): Promise<void> {
+  if (usePostgres) {
+    try {
+      const { deleteClassPostgres } = await import('./db-postgres');
+      return deleteClassPostgres(classId);
+    } catch (error) {
+      console.error('Postgres error, falling back to file system:', error);
+      // Fallback to file system
+    }
+  }
+  
+  await ensureDbDir();
+  try {
+    const data = await fs.readFile(path.join(dbPath, 'classes.json'), 'utf-8');
+    const classes = JSON.parse(data);
+    const filtered = classes.filter((c: ClassInfo) => c.id !== classId);
+    await fs.writeFile(
+      path.join(dbPath, 'classes.json'),
+      JSON.stringify(filtered, null, 2)
+    );
+  } catch {
+    // File doesn't exist, nothing to delete
+  }
+}
+

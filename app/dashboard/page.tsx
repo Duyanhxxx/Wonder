@@ -115,18 +115,31 @@ export default function DashboardPage() {
     }
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+
       const res = await fetch(`/api/classes/${classId}`, {
         method: 'DELETE',
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (res.ok) {
+        const data = await res.json();
+        alert(data.message || 'Đã xóa lớp thành công');
         loadClasses();
       } else {
         const data = await res.json();
         alert(data.error || 'Lỗi khi xóa lớp');
       }
-    } catch (error) {
-      alert('Lỗi khi xóa lớp');
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        alert('Xóa lớp timeout. Vui lòng thử lại hoặc kiểm tra kết nối database.');
+      } else {
+        console.error('Delete class error:', error);
+        alert('Lỗi khi xóa lớp: ' + (error.message || 'Unknown error'));
+      }
     }
   };
 

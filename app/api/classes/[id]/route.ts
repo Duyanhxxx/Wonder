@@ -68,6 +68,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Kiểm tra lớp có tồn tại không
     const classes = await getClasses();
     const classExists = classes.some(c => c.id === params.id);
 
@@ -75,19 +76,23 @@ export async function DELETE(
       return NextResponse.json({ error: 'Không tìm thấy lớp' }, { status: 404 });
     }
 
-    // Xóa tất cả học sinh trong lớp (sử dụng hàm xóa trực tiếp, nhanh hơn)
-    const { deleteStudentsByClassId } = await import('@/lib/db');
+    // Xóa tất cả học sinh trong lớp trước (sử dụng hàm xóa trực tiếp, nhanh hơn)
+    const { deleteStudentsByClassId, deleteClass } = await import('@/lib/db');
+    console.log(`Deleting students for class ${params.id}...`);
     await deleteStudentsByClassId(params.id);
+    console.log(`Students deleted. Now deleting class ${params.id}...`);
 
-    // Xóa lớp
-    const filtered = classes.filter(c => c.id !== params.id);
-    await saveClasses(filtered);
+    // Xóa lớp (sử dụng hàm xóa trực tiếp, nhanh hơn)
+    await deleteClass(params.id);
+    console.log(`Class ${params.id} deleted successfully.`);
     
     return NextResponse.json({ message: 'Đã xóa lớp thành công' });
   } catch (error: any) {
     console.error('Delete class error:', error);
+    console.error('Error stack:', error?.stack);
     return NextResponse.json({ 
-      error: error?.message || 'Lỗi server khi xóa lớp' 
+      error: error?.message || 'Lỗi server khi xóa lớp',
+      details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
     }, { status: 500 });
   }
 }
