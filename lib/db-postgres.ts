@@ -338,6 +338,16 @@ export async function deleteStudentPostgres(id: string): Promise<void> {
   }
 }
 
+export async function deleteStudentsByClassIdPostgres(classId: string): Promise<void> {
+  try {
+    const sql = await getSql();
+    await sql`DELETE FROM students WHERE class_id = ${classId}`;
+  } catch (error) {
+    console.error('Delete students by classId error:', error);
+    throw error;
+  }
+}
+
 // Class functions
 export async function getClassesPostgres(): Promise<ClassInfo[]> {
   try {

@@ -69,22 +69,26 @@ export async function DELETE(
     }
 
     const classes = await getClasses();
-    const filtered = classes.filter(c => c.id !== params.id);
+    const classExists = classes.some(c => c.id === params.id);
 
-    if (filtered.length === classes.length) {
+    if (!classExists) {
       return NextResponse.json({ error: 'Không tìm thấy lớp' }, { status: 404 });
     }
 
-    // Xóa tất cả học sinh trong lớp
-    const { getStudents, saveStudents } = await import('@/lib/db');
-    const students = await getStudents();
-    const filteredStudents = students.filter(s => s.classId !== params.id);
-    await saveStudents(filteredStudents);
+    // Xóa tất cả học sinh trong lớp (sử dụng hàm xóa trực tiếp, nhanh hơn)
+    const { deleteStudentsByClassId } = await import('@/lib/db');
+    await deleteStudentsByClassId(params.id);
 
+    // Xóa lớp
+    const filtered = classes.filter(c => c.id !== params.id);
     await saveClasses(filtered);
+    
     return NextResponse.json({ message: 'Đã xóa lớp thành công' });
-  } catch (error) {
-    return NextResponse.json({ error: 'Lỗi server' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Delete class error:', error);
+    return NextResponse.json({ 
+      error: error?.message || 'Lỗi server khi xóa lớp' 
+    }, { status: 500 });
   }
 }
 
