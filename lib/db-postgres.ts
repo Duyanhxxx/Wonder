@@ -6,11 +6,15 @@ import { User, Student, ClassInfo } from './db';
 // Dynamic import để tránh lỗi khi package chưa được cài đặt
 async function getSql() {
   // Kiểm tra xem có POSTGRES_URL không (có thể từ Neon hoặc Vercel Postgres)
-  const postgresUrl = process.env.POSTGRES_URL;
+  let postgresUrl = process.env.POSTGRES_URL;
   
   if (!postgresUrl) {
     throw new Error('POSTGRES_URL environment variable is not set');
   }
+
+  // Loại bỏ channel_binding=require vì Neon serverless không hỗ trợ
+  // và có thể gây lỗi connection
+  postgresUrl = postgresUrl.replace(/[&?]channel_binding=require/g, '');
 
   // Kiểm tra xem có dùng Neon không (Neon connection string thường có neon.tech hoặc aws.neon.tech)
   const isNeon = postgresUrl.includes('neon.tech') || postgresUrl.includes('@neon.tech');
@@ -19,33 +23,24 @@ async function getSql() {
     // Dùng Neon
     try {
       const { neon } = await import('@neondatabase/serverless');
+      console.log('Using Neon database');
+      console.log('Connection string (first 50 chars):', postgresUrl.substring(0, 50) + '...');
       const sql = neon(postgresUrl);
       
+      // Neon serverless hỗ trợ template literals trực tiếp
       // Wrap để tương thích với @vercel/postgres template literal API
       return new Proxy({} as any, {
         get(_target, _prop) {
           return (strings: TemplateStringsArray, ...values: any[]) => {
-            // Build query string với parameterized queries
-            let query = '';
-            const params: any[] = [];
-            let paramIndex = 1;
-            
-            for (let i = 0; i < strings.length; i++) {
-              query += strings[i];
-              if (i < values.length) {
-                query += `$${paramIndex}`;
-                params.push(values[i]);
-                paramIndex++;
-              }
-            }
-            
-            // Execute với Neon (Neon hỗ trợ template literals tương tự)
-            return sql(query, params);
+            // Neon hỗ trợ template literals trực tiếp
+            // Chỉ cần gọi sql với template literal
+            return sql(strings, ...values);
           };
         }
       });
-    } catch (neonError) {
-      throw new Error('Failed to initialize Neon database. Make sure @neondatabase/serverless is installed.');
+    } catch (neonError: any) {
+      console.error('Neon initialization error:', neonError);
+      throw new Error(`Failed to initialize Neon database: ${neonError?.message || 'Unknown error'}. Make sure @neondatabase/serverless is installed.`);
     }
   } else {
     // Dùng @vercel/postgres (cho Vercel Postgres)
@@ -61,8 +56,11 @@ async function getSql() {
 // Khởi tạo tables (chạy một lần)
 export async function initDatabase() {
   try {
+    console.log('Getting SQL connection...');
     const sql = await getSql();
+    console.log('SQL connection obtained');
     
+    console.log('Creating users table...');
     // Tạo bảng users
     await sql`
       CREATE TABLE IF NOT EXISTS users (
@@ -73,7 +71,9 @@ export async function initDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
+    console.log('Users table created');
 
+    console.log('Creating classes table...');
     // Tạo bảng classes
     await sql`
       CREATE TABLE IF NOT EXISTS classes (
@@ -88,7 +88,9 @@ export async function initDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
+    console.log('Classes table created');
 
+    console.log('Creating students table...');
     // Tạo bảng students
     await sql`
       CREATE TABLE IF NOT EXISTS students (
@@ -115,8 +117,12 @@ export async function initDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
-  } catch (error) {
+    console.log('Students table created');
+    console.log('Database initialization completed successfully');
+  } catch (error: any) {
     console.error('Database initialization error:', error);
+    console.error('Error message:', error?.message);
+    console.error('Error stack:', error?.stack);
     throw error;
   }
 }
