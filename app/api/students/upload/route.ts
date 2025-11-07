@@ -316,7 +316,6 @@ export async function POST(request: NextRequest) {
       let soDienThoaiColIndex = -1;
       let ngayDongColIndex = -1;
       let kyTenColIndex = -1;
-      let thangNamColIndex = -1; // Cột ngày tháng (01/10/2025)
 
       // Tìm index của các cột từ dòng header
       // Tìm tất cả các cột có dữ liệu (bỏ qua cột trống)
@@ -348,22 +347,6 @@ export async function POST(request: NextRequest) {
           // Tìm Ký tên
           else if (cell.includes('ký tên') || cell.includes('ký') && kyTenColIndex === -1) {
             kyTenColIndex = col;
-          }
-        }
-        
-        // Tìm cột ngày tháng (có format dd/mm/yyyy) - kiểm tra một vài dòng dữ liệu
-        for (let col = 0; col < headerRow.length; col++) {
-          if (thangNamColIndex !== -1) break;
-          
-          // Kiểm tra 3 dòng đầu tiên của dữ liệu
-          for (let rowIdx = dataStartIndex; rowIdx < Math.min(dataStartIndex + 3, jsonData.length); rowIdx++) {
-            const cellValue = String(jsonData[rowIdx]?.[col] || '').trim();
-            // Kiểm tra format dd/mm/yyyy hoặc d/m/yyyy
-            const dateMatch = cellValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-            if (dateMatch) {
-              thangNamColIndex = col;
-              break;
-            }
           }
         }
       }
@@ -466,18 +449,6 @@ export async function POST(request: NextRequest) {
         const soDienThoai = columns[soDienThoaiColIndex] || '';
         const ngayDong = columns[ngayDongColIndex] || '';
         const kyTen = columns[kyTenColIndex] || '';
-        
-        // Dùng thangNam từ classInfo (đã parse từ header "Tháng 10/2025")
-        // Nếu không có, thử parse từ ngayDong như fallback
-        let thangNam = classThangNam || '';
-        if (!thangNam && ngayDong) {
-          const dateMatch = ngayDong.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-          if (dateMatch) {
-            const month = dateMatch[2];
-            const year = dateMatch[3];
-            thangNam = `${month}/${year}`;
-          }
-        }
 
         // Debug: Log dữ liệu đã parse (chỉ log 3 dòng đầu để tránh spam)
         if (i === dataStartIndex || i === dataStartIndex + 1 || i === dataStartIndex + 2) {
@@ -584,7 +555,6 @@ export async function POST(request: NextRequest) {
           soDienThoai,
           ngayDong,
           kyTen,
-          thangNam,
           diemDanh,
           ghiChu,
           chietKhau,
@@ -871,7 +841,6 @@ function parseStudentsFromData(
   let soDienThoaiColIndex = -1;
   let ngayDongColIndex = -1;
   let kyTenColIndex = -1;
-  let thangNamColIndex = -1; // Cột ngày tháng (01/10/2025)
 
   if (headerRowIndex >= 0 && headerRowIndex < jsonData.length) {
     const headerRow = jsonData[headerRowIndex];
@@ -890,23 +859,6 @@ function parseStudentsFromData(
         ngayDongColIndex = col;
       } else if (cell.includes('ký tên') || cell.includes('ký') && kyTenColIndex === -1) {
         kyTenColIndex = col;
-      }
-    }
-    
-    // Tìm cột ngày tháng (có format dd/mm/yyyy) - thường là cột sau ngày đóng hoặc ở cuối
-    // Kiểm tra một vài dòng dữ liệu để tìm cột có format ngày tháng
-    for (let col = 0; col < headerRow.length; col++) {
-      if (thangNamColIndex !== -1) break;
-      
-      // Kiểm tra 3 dòng đầu tiên của dữ liệu
-      for (let rowIdx = dataStartIndex; rowIdx < Math.min(dataStartIndex + 3, jsonData.length); rowIdx++) {
-        const cellValue = String(jsonData[rowIdx]?.[col] || '').trim();
-        // Kiểm tra format dd/mm/yyyy hoặc d/m/yyyy
-        const dateMatch = cellValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        if (dateMatch) {
-          thangNamColIndex = col;
-          break;
-        }
       }
     }
   }
@@ -1029,7 +981,6 @@ function parseStudentsFromData(
       soDienThoai,
       ngayDong,
       kyTen,
-      thangNam,
       diemDanh,
       ghiChu,
       chietKhau,

@@ -19,7 +19,6 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>(''); // Filter theo tháng (ví dụ: "10/2025")
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]); // Danh sách lớp được chọn
-  const [allStudents, setAllStudents] = useState<any[]>([]); // Lưu tất cả học sinh để filter lớp theo tháng
 
   const checkAuth = useCallback(async () => {
     try {
@@ -91,32 +90,11 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const loadStudents = useCallback(async () => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      
-      const res = await fetch('/api/students', {
-        signal: controller.signal,
-        cache: 'no-store',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (res.ok) {
-        const data = await res.json();
-        setAllStudents(data.students || []);
-      }
-    } catch (error: any) {
-      console.error('Error loading students:', error);
-    }
-  }, []);
 
   useEffect(() => {
     checkAuth();
     loadClasses();
-    loadStudents();
-  }, [checkAuth, loadClasses, loadStudents]);
+  }, [checkAuth, loadClasses]);
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -154,7 +132,6 @@ export default function DashboardPage() {
         const data = await res.json();
         alert(data.message || 'Đã xóa lớp thành công');
         loadClasses();
-        loadStudents();
         setSelectedClassIds([]);
       } else {
         const data = await res.json();
@@ -197,7 +174,6 @@ export default function DashboardPage() {
         const data = await res.json();
         alert(data.message || `Đã xóa ${selectedClassIds.length} lớp thành công`);
         loadClasses();
-        loadStudents();
         setSelectedClassIds([]);
       } else {
         const data = await res.json();
@@ -284,17 +260,16 @@ export default function DashboardPage() {
     }
   };
 
-  // Lấy danh sách tháng/năm duy nhất từ học sinh
-  const availableMonths = Array.from(new Set(allStudents.map(s => s.thangNam).filter(Boolean))).sort().reverse();
+  // Lấy danh sách tháng/năm duy nhất từ các lớp
+  const availableMonths = Array.from(new Set(classes.map(c => c.thangNam).filter(Boolean))).sort().reverse();
   
-  // Filter lớp: chỉ hiển thị lớp có học sinh trong tháng được chọn
+  // Filter lớp: chỉ hiển thị lớp có tháng/năm khớp với filter
   const filteredClasses = classes.filter((classInfo) => {
-    // Filter theo tháng: chỉ hiển thị lớp có học sinh trong tháng đó
+    // Filter theo tháng: chỉ hiển thị lớp có tháng/năm khớp
     if (selectedMonth) {
-      const hasStudentsInMonth = allStudents.some(
-        s => s.classId === classInfo.id && s.thangNam === selectedMonth
-      );
-      if (!hasStudentsInMonth) return false;
+      if (classInfo.thangNam !== selectedMonth) {
+        return false;
+      }
     }
     
     // Filter theo search term
