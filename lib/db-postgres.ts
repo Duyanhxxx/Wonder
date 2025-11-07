@@ -156,8 +156,28 @@ export async function getUsersPostgres(): Promise<User[]> {
       name: row.name,
       createdAt: row.created_at.toISOString(),
     }));
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get users error:', error);
+    // Nếu bảng chưa tồn tại, tự động khởi tạo database
+    if (error?.code === '42P01' || error?.message?.includes('does not exist')) {
+      console.log('Tables do not exist, initializing database...');
+      try {
+        await initDatabase();
+        // Thử lại sau khi init
+        const sql = await getSql();
+        const result = await sql`SELECT * FROM users ORDER BY created_at DESC`;
+        return result.rows.map((row: any) => ({
+          id: row.id,
+          email: row.email,
+          password: row.password,
+          name: row.name,
+          createdAt: row.created_at.toISOString(),
+        }));
+      } catch (initError) {
+        console.error('Auto-init failed:', initError);
+        return [];
+      }
+    }
     return [];
   }
 }
@@ -173,8 +193,29 @@ export async function saveUserPostgres(user: User): Promise<void> {
         password = EXCLUDED.password,
         name = EXCLUDED.name
     `;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Save user error:', error);
+    // Nếu bảng chưa tồn tại, tự động khởi tạo database
+    if (error?.code === '42P01' || error?.message?.includes('does not exist')) {
+      console.log('Tables do not exist, initializing database...');
+      try {
+        await initDatabase();
+        // Thử lại sau khi init
+        const sql = await getSql();
+        await sql`
+          INSERT INTO users (id, email, password, name, created_at)
+          VALUES (${user.id}, ${user.email}, ${user.password}, ${user.name}, ${user.createdAt})
+          ON CONFLICT (id) DO UPDATE SET
+            email = EXCLUDED.email,
+            password = EXCLUDED.password,
+            name = EXCLUDED.name
+        `;
+        return;
+      } catch (initError) {
+        console.error('Auto-init failed:', initError);
+        throw initError;
+      }
+    }
     throw error;
   }
 }

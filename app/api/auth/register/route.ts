@@ -45,10 +45,27 @@ export async function POST(request: NextRequest) {
     
     setAuthCookie(response, token);
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Register error:', error);
+    
+    // Nếu lỗi liên quan đến database chưa được khởi tạo
+    if (error?.message?.includes('does not exist') || error?.code === '42P01') {
+      return NextResponse.json(
+        { 
+          error: 'Database chưa được khởi tạo',
+          hint: 'Vui lòng truy cập /api/init-db để khởi tạo database trước khi đăng ký',
+          details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        },
+        { status: 500 }
+      );
+    }
+    
     return NextResponse.json(
-      { error: 'Lỗi server' },
+      { 
+        error: 'Lỗi server',
+        message: error?.message || 'Unknown error',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
       { status: 500 }
     );
   }
