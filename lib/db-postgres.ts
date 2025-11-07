@@ -118,6 +118,7 @@ export async function initDatabase() {
         so_dien_thoai VARCHAR(20),
         ngay_dong VARCHAR(255),
         ky_ten VARCHAR(255),
+        thang_nam VARCHAR(20),
         diem_danh_b1 BOOLEAN DEFAULT FALSE,
         diem_danh_b2 BOOLEAN DEFAULT FALSE,
         diem_danh_b3 BOOLEAN DEFAULT FALSE,
@@ -133,6 +134,14 @@ export async function initDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
+    
+    // Thêm cột thang_nam nếu chưa có (cho database đã tồn tại)
+    try {
+      await sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS thang_nam VARCHAR(20)`;
+    } catch (error: any) {
+      // Cột đã tồn tại hoặc lỗi khác, bỏ qua
+      console.log('Column thang_nam may already exist or error:', error?.message);
+    }
     console.log('Students table created');
     
     console.log('Database initialization completed successfully');
@@ -255,6 +264,7 @@ export async function getStudentsPostgres(): Promise<Student[]> {
       soDienThoai: row.so_dien_thoai || '',
       ngayDong: row.ngay_dong || '',
       kyTen: row.ky_ten || '',
+      thangNam: row.thang_nam || '',
       diemDanh: {
         B1: row.diem_danh_b1 || false,
         B2: row.diem_danh_b2 || false,
@@ -282,14 +292,14 @@ export async function saveStudentPostgres(student: Student): Promise<void> {
     const sql = await getSql();
     await sql`
       INSERT INTO students (
-        id, class_id, stt, ho_va_ten, ngay_vao, so_dien_thoai, ngay_dong, ky_ten,
+        id, class_id, stt, ho_va_ten, ngay_vao, so_dien_thoai, ngay_dong, ky_ten, thang_nam,
         diem_danh_b1, diem_danh_b2, diem_danh_b3, diem_danh_b4,
         diem_danh_b5, diem_danh_b6, diem_danh_b7, diem_danh_b8,
         ghi_chu, chiet_khau, phan_tram, created_at, updated_at
       )
       VALUES (
         ${student.id}, ${student.classId || null}, ${student.stt}, ${student.hoVaTen}, ${student.ngayVao},
-        ${student.soDienThoai}, ${student.ngayDong}, ${student.kyTen},
+        ${student.soDienThoai}, ${student.ngayDong}, ${student.kyTen}, ${student.thangNam || null},
         ${student.diemDanh.B1}, ${student.diemDanh.B2}, ${student.diemDanh.B3}, ${student.diemDanh.B4},
         ${student.diemDanh.B5}, ${student.diemDanh.B6}, ${student.diemDanh.B7}, ${student.diemDanh.B8},
         ${student.ghiChu}, ${student.chietKhau}, ${student.phanTram},
@@ -302,6 +312,7 @@ export async function saveStudentPostgres(student: Student): Promise<void> {
         ngay_vao = EXCLUDED.ngay_vao,
         so_dien_thoai = EXCLUDED.so_dien_thoai,
         ngay_dong = EXCLUDED.ngay_dong,
+        thang_nam = EXCLUDED.thang_nam,
         ky_ten = EXCLUDED.ky_ten,
         diem_danh_b1 = EXCLUDED.diem_danh_b1,
         diem_danh_b2 = EXCLUDED.diem_danh_b2,

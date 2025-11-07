@@ -14,11 +14,18 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const classId = searchParams.get('classId');
+    const thangNam = searchParams.get('thangNam'); // Filter theo tháng/năm (ví dụ: "10/2025")
 
     const students = await getStudents();
-    const filtered = classId 
-      ? students.filter(s => s.classId === classId)
-      : students;
+    let filtered = students;
+    
+    if (classId) {
+      filtered = filtered.filter(s => s.classId === classId);
+    }
+    
+    if (thangNam) {
+      filtered = filtered.filter(s => s.thangNam === thangNam);
+    }
     
     return NextResponse.json({ students: filtered });
   } catch (error) {
@@ -64,6 +71,7 @@ export async function POST(request: NextRequest) {
       soDienThoai: data.soDienThoai || '',
       ngayDong: data.ngayDong || '',
       kyTen: data.kyTen || '',
+      thangNam: data.thangNam || '',
       diemDanh: {
         B1: data.diemDanh?.B1 || false,
         B2: data.diemDanh?.B2 || false,

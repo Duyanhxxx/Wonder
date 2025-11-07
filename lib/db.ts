@@ -40,6 +40,7 @@ export interface Student {
   soDienThoai: string;
   ngayDong: string;
   kyTen: string;
+  thangNam: string; // Tháng/năm của học sinh (ví dụ: "10/2025")
   diemDanh: {
     B1: boolean;
     B2: boolean;

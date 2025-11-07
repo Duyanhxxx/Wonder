@@ -17,6 +17,9 @@ export default function DashboardPage() {
   const [uploadMessage, setUploadMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string>(''); // Filter theo tháng (ví dụ: "10/2025")
+  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]); // Danh sách lớp được chọn
+  const [allStudents, setAllStudents] = useState<any[]>([]); // Lưu tất cả học sinh để filter lớp theo tháng
 
   const checkAuth = useCallback(async () => {
     try {
@@ -88,10 +91,32 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const loadStudents = useCallback(async () => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
+      const res = await fetch('/api/students', {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (res.ok) {
+        const data = await res.json();
+        setAllStudents(data.students || []);
+      }
+    } catch (error: any) {
+      console.error('Error loading students:', error);
+    }
+  }, []);
+
   useEffect(() => {
     checkAuth();
     loadClasses();
-  }, [checkAuth, loadClasses]);
+    loadStudents();
+  }, [checkAuth, loadClasses, loadStudents]);
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -129,6 +154,8 @@ export default function DashboardPage() {
         const data = await res.json();
         alert(data.message || 'Đã xóa lớp thành công');
         loadClasses();
+        loadStudents();
+        setSelectedClassIds([]);
       } else {
         const data = await res.json();
         alert(data.error || 'Lỗi khi xóa lớp');
@@ -140,6 +167,65 @@ export default function DashboardPage() {
         console.error('Delete class error:', error);
         alert('Lỗi khi xóa lớp: ' + (error.message || 'Unknown error'));
       }
+    }
+  };
+
+  const handleBulkDeleteClasses = async () => {
+    if (selectedClassIds.length === 0) {
+      alert('Vui lòng chọn ít nhất một lớp để xóa');
+      return;
+    }
+
+    if (!confirm(`Bạn có chắc muốn xóa ${selectedClassIds.length} lớp? Tất cả học sinh trong các lớp này sẽ bị xóa.`)) {
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
+
+      const res = await fetch('/api/classes/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classIds: selectedClassIds }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        alert(data.message || `Đã xóa ${selectedClassIds.length} lớp thành công`);
+        loadClasses();
+        loadStudents();
+        setSelectedClassIds([]);
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Lỗi khi xóa lớp');
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        alert('Xóa lớp timeout. Vui lòng thử lại hoặc kiểm tra kết nối database.');
+      } else {
+        console.error('Bulk delete classes error:', error);
+        alert('Lỗi khi xóa lớp: ' + (error.message || 'Unknown error'));
+      }
+    }
+  };
+
+  const handleToggleClassSelection = (classId: string) => {
+    setSelectedClassIds(prev => 
+      prev.includes(classId) 
+        ? prev.filter(id => id !== classId)
+        : [...prev, classId]
+    );
+  };
+
+  const handleSelectAllClasses = () => {
+    if (selectedClassIds.length === filteredClasses.length) {
+      setSelectedClassIds([]);
+    } else {
+      setSelectedClassIds(filteredClasses.map(c => c.id));
     }
   };
 
@@ -198,7 +284,20 @@ export default function DashboardPage() {
     }
   };
 
+  // Lấy danh sách tháng/năm duy nhất từ học sinh
+  const availableMonths = Array.from(new Set(allStudents.map(s => s.thangNam).filter(Boolean))).sort().reverse();
+  
+  // Filter lớp: chỉ hiển thị lớp có học sinh trong tháng được chọn
   const filteredClasses = classes.filter((classInfo) => {
+    // Filter theo tháng: chỉ hiển thị lớp có học sinh trong tháng đó
+    if (selectedMonth) {
+      const hasStudentsInMonth = allStudents.some(
+        s => s.classId === classInfo.id && s.thangNam === selectedMonth
+      );
+      if (!hasStudentsInMonth) return false;
+    }
+    
+    // Filter theo search term
     const searchLower = searchTerm.toLowerCase();
     return (
       classInfo.tenLop.toLowerCase().includes(searchLower) ||
@@ -305,40 +404,81 @@ export default function DashboardPage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header với search và actions */}
-        <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex-1 max-w-md relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+        <div className="mb-6 space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex-1 max-w-md relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                placeholder="Tìm kiếm lớp, giáo viên, tháng..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm hover:shadow-md bg-white"
+              />
             </div>
-            <input
-              type="text"
-              placeholder="Tìm kiếm lớp, giáo viên, tháng..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm hover:shadow-md bg-white"
-            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 font-semibold flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                Upload Excel
+              </button>
+              <button
+                onClick={handleAddClass}
+                className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 font-semibold flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Tạo lớp mới
+              </button>
+            </div>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setShowUploadModal(true)}
-              className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 font-semibold flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
-              Upload Excel
-            </button>
-            <button
-              onClick={handleAddClass}
-              className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 font-semibold flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Tạo lớp mới
-            </button>
+          
+          {/* Filter tháng và bulk actions */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white/80 backdrop-blur-sm p-4 rounded-xl shadow-md border border-gray-200/50">
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Lọc theo tháng:
+              </label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+              >
+                <option value="">Tất cả tháng</option>
+                {availableMonths.map(month => (
+                  <option key={month} value={month}>{month}</option>
+                ))}
+              </select>
+            </div>
+            
+            {selectedClassIds.length > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-700 font-medium">
+                  Đã chọn: {selectedClassIds.length} lớp
+                </span>
+                <button
+                  onClick={handleBulkDeleteClasses}
+                  className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 font-semibold flex items-center gap-2 shadow-md hover:shadow-lg"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Xóa {selectedClassIds.length} lớp
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -426,15 +566,34 @@ export default function DashboardPage() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredClasses.map((classInfo) => (
-              <ClassCard
-                key={classInfo.id}
-                classInfo={classInfo}
-                onEdit={() => handleEditClass(classInfo)}
-                onDelete={() => handleDeleteClass(classInfo.id)}
-              />
-            ))}
+          <div className="space-y-4">
+            {/* Select all checkbox */}
+            {filteredClasses.length > 0 && (
+              <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm p-3 rounded-xl shadow-md border border-gray-200/50">
+                <input
+                  type="checkbox"
+                  checked={selectedClassIds.length === filteredClasses.length && filteredClasses.length > 0}
+                  onChange={handleSelectAllClasses}
+                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <label className="text-sm font-medium text-gray-700">
+                  Chọn tất cả ({filteredClasses.length} lớp)
+                </label>
+              </div>
+            )}
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {filteredClasses.map((classInfo) => (
+                <ClassCard
+                  key={classInfo.id}
+                  classInfo={classInfo}
+                  isSelected={selectedClassIds.includes(classInfo.id)}
+                  onSelect={() => handleToggleClassSelection(classInfo.id)}
+                  onEdit={() => handleEditClass(classInfo)}
+                  onDelete={() => handleDeleteClass(classInfo.id)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </main>
@@ -569,10 +728,14 @@ export default function DashboardPage() {
 // Class Card Component (Trello-like)
 function ClassCard({
   classInfo,
+  isSelected,
+  onSelect,
   onEdit,
   onDelete,
 }: {
   classInfo: ClassInfo;
+  isSelected: boolean;
+  onSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -607,11 +770,26 @@ function ClassCard({
           <div className="absolute inset-0 bg-black/10 group-hover:bg-black/5 transition-all"></div>
           <div className="relative z-10">
             <div className="flex justify-between items-start mb-3">
-              <div className="flex-1">
-                <h3 className="text-white font-bold text-xl mb-1 drop-shadow-md">{classInfo.tenLop}</h3>
-                {classInfo.giaoVien && (
-                  <div className="text-blue-100 text-sm font-medium">👨‍🏫 {classInfo.giaoVien}</div>
-                )}
+              <div className="flex items-center gap-3 flex-1">
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onSelect();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 bg-white/20 border-white/50"
+                />
+                <div className="flex-1">
+                  <h3 className="text-white font-bold text-xl mb-1 drop-shadow-md">{classInfo.tenLop}</h3>
+                  {classInfo.giaoVien && (
+                    <div className="text-blue-100 text-sm font-medium">👨‍🏫 {classInfo.giaoVien}</div>
+                  )}
+                </div>
               </div>
               <div className="flex gap-1">
                 <button
