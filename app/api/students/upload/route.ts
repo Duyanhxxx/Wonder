@@ -113,6 +113,13 @@ export async function POST(request: NextRequest) {
           // Lấy thangNam từ classInfo để dùng cho tất cả học sinh trong lớp này
           const classThangNam = classInfo.thangNam;
           
+          console.log(`Parsed class info for section "${section.header}":`, {
+            tenLop: classInfo.tenLop,
+            thangNam: classInfo.thangNam,
+            giaoVien: classInfo.giaoVien,
+            siSo: classInfo.siSo
+          });
+          
           // Luôn tạo lớp mới (không gộp) - mỗi sheet/section là một lớp riêng
           // Điều này cho phép có nhiều lớp cùng tên nhưng khác tháng/năm hoặc khác sheet
           const classId = uuidv4();
@@ -122,6 +129,7 @@ export async function POST(request: NextRequest) {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
+          console.log(`Created new class with thangNam: "${newClass.thangNam}"`);
           newClasses.push(newClass);
           existingClasses.push(newClass);
           
@@ -221,6 +229,13 @@ export async function POST(request: NextRequest) {
         // Lấy thangNam từ classInfo để dùng cho tất cả học sinh trong lớp này
         const classThangNam = classInfo.thangNam;
         
+        console.log(`Parsed class info for sheet "${sheetName}":`, {
+          tenLop: classInfo.tenLop,
+          thangNam: classInfo.thangNam,
+          giaoVien: classInfo.giaoVien,
+          siSo: classInfo.siSo
+        });
+        
         // Luôn tạo lớp mới (không gộp) - mỗi sheet là một lớp riêng
         // Điều này cho phép có nhiều lớp cùng tên nhưng khác tháng/năm hoặc khác sheet
         const classId = uuidv4();
@@ -230,6 +245,7 @@ export async function POST(request: NextRequest) {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
+        console.log(`Created new class with thangNam: "${newClass.thangNam}"`);
         newClasses.push(newClass);
         existingClasses.push(newClass);
 
@@ -598,13 +614,46 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
 
     const rowText = row.map((cell: any) => String(cell || '').trim()).join(' ').toLowerCase();
 
-    // Tìm tháng/năm từ header (ví dụ: "Tháng 10/2025", "01/10/2025", hoặc "Wed Oct 01 2025 14:00:00 GMT+0700")
+    // Tìm tháng/năm từ header (ví dụ: "Tháng 10/2025", "01/10/2025", hoặc Date object/string)
     // Tìm trong từng cell để chính xác hơn
     for (let col = 0; col < row.length; col++) {
-      const cell = String(row[col] || '').trim();
+      const cellValue = row[col];
+      
+      // Xử lý Date object (khi Excel/CSV parse Date thành object)
+      if (cellValue instanceof Date) {
+        const day = String(cellValue.getDate()).padStart(2, '0');
+        const month = String(cellValue.getMonth() + 1).padStart(2, '0'); // getMonth() returns 0-11
+        const year = cellValue.getFullYear();
+        thangNam = `${day}/${month}/${year}`; // Format: dd/mm/yyyy
+        console.log(`Found Date object in row ${i}, col ${col}: ${thangNam}`);
+        break;
+      }
+      
+      // Thử parse như Date nếu cell là object có method getDate
+      if (cellValue && typeof cellValue === 'object' && 'getDate' in cellValue && typeof (cellValue as any).getDate === 'function') {
+        try {
+          const dateObj = cellValue as Date;
+          const day = String(dateObj.getDate()).padStart(2, '0');
+          const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+          const year = dateObj.getFullYear();
+          thangNam = `${day}/${month}/${year}`;
+          console.log(`Found Date-like object in row ${i}, col ${col}: ${thangNam}`);
+          break;
+        } catch (e) {
+          // Không phải Date object
+        }
+      }
+      
+      const cell = String(cellValue || '').trim();
+      
+      // Debug: Log cell value nếu có vẻ là date (chỉ log 3 dòng đầu)
+      if (i < 3 && col < 5 && cell.length > 0) {
+        console.log(`Row ${i}, Col ${col}: "${cell}" (type: ${typeof cellValue}, isDate: ${cellValue instanceof Date})`);
+      }
       
       // Tìm pattern "Wed Oct 01 2025 14:00:00 GMT+0700" hoặc format Date string
-      // Format: "Wed Oct 01 2025" hoặc "Mon Oct 01 2025 14:00:00 GMT+0700"
+      // Format: "Wed Oct 01 2025" hoặc "Mon Oct 01 2025 14:00:00 GMT+0700 (Giờ Đông Dương)"
+      // Regex match cả phần sau như "(Giờ Đông Dương)" hoặc bất kỳ text nào
       const dateStringMatch = cell.match(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{4})/i);
       if (dateStringMatch) {
         const monthNames: { [key: string]: string } = {
@@ -616,7 +665,27 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
         const day = dateStringMatch[3].padStart(2, '0');
         const year = dateStringMatch[4];
         thangNam = `${day}/${month}/${year}`; // Format: dd/mm/yyyy
+        console.log(`Found date string pattern in row ${i}, col ${col}: "${cell}" -> ${thangNam}`);
         break;
+      }
+      
+      // Thử parse như Date nếu có format số (Excel serial date)
+      if (i < 3 && !isNaN(Number(cell)) && Number(cell) > 1000) {
+        // Có thể là Excel serial date (số ngày từ 1900-01-01)
+        try {
+          // Excel date: số ngày từ 1900-01-01, nhưng Excel tính sai 1 ngày
+          const excelDate = Number(cell);
+          const jsDate = new Date((excelDate - 25569) * 86400 * 1000); // Convert Excel date to JS date
+          if (!isNaN(jsDate.getTime()) && jsDate.getFullYear() >= 2020 && jsDate.getFullYear() <= 2100) {
+            const day = String(jsDate.getDate()).padStart(2, '0');
+            const month = String(jsDate.getMonth() + 1).padStart(2, '0');
+            const year = jsDate.getFullYear();
+            thangNam = `${day}/${month}/${year}`;
+            break;
+          }
+        } catch (e) {
+          // Không phải Excel date, bỏ qua
+        }
       }
       
       // Tìm pattern "Tháng 10/2025" hoặc "Tháng10/2025" - parse thành "01/10/2025"
@@ -735,7 +804,7 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
     }
   }
 
-  return {
+  const result = {
     tenLop: tenLop || sheetName,
     giaoVien: giaoVien || '',
     siSo: siSo || 0,
@@ -743,6 +812,10 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
     thoiGianHoc: thoiGianHoc || '',
     trungTam: trungTam || 'TRUNG TÂM BDVH & NGOẠI NGỮ WONDER',
   };
+  
+  console.log(`parseClassInfo result for "${sheetName}":`, result);
+  
+  return result;
 }
 
 // Helper function để parse một dòng CSV (xử lý quotes và commas)
