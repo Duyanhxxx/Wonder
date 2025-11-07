@@ -218,9 +218,9 @@ export default function DashboardPage() {
               <div className="text-xs text-yellow-700">
                 1. Truy cập: <code className="bg-yellow-100 px-1 rounded">{window.location.origin}/api/init-db</code>
                 <br />
-                2. Đợi thông báo "Database initialized successfully"
+                2. Đợi thông báo &quot;Database initialized successfully&quot;
                 <br />
-                3. Quay lại trang này và nhấn "Thử lại"
+                3. Quay lại trang này và nhấn &quot;Thử lại&quot;
               </div>
             </div>
           )}
