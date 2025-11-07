@@ -113,30 +113,17 @@ export async function POST(request: NextRequest) {
           // Lấy thangNam từ classInfo để dùng cho tất cả học sinh trong lớp này
           const classThangNam = classInfo.thangNam;
           
-          // Tìm hoặc tạo class
-          let classId: string;
-          const existingClass = existingClasses.find(
-            c => c.tenLop === classInfo.tenLop && c.thangNam === classInfo.thangNam
-          );
-          
-          if (existingClass) {
-            classId = existingClass.id;
-            existingClass.giaoVien = classInfo.giaoVien;
-            existingClass.siSo = classInfo.siSo;
-            existingClass.thoiGianHoc = classInfo.thoiGianHoc;
-            existingClass.trungTam = classInfo.trungTam;
-            existingClass.updatedAt = new Date().toISOString();
-          } else {
-            classId = uuidv4();
-            const newClass: ClassInfo = {
-              id: classId,
-              ...classInfo,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            };
-            newClasses.push(newClass);
-            existingClasses.push(newClass);
-          }
+          // Luôn tạo lớp mới (không gộp) - mỗi sheet/section là một lớp riêng
+          // Điều này cho phép có nhiều lớp cùng tên nhưng khác tháng/năm hoặc khác sheet
+          const classId = uuidv4();
+          const newClass: ClassInfo = {
+            id: classId,
+            ...classInfo,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          newClasses.push(newClass);
+          existingClasses.push(newClass);
           
           // Đếm số học sinh hiện có trong lớp này
           const studentsInClass = existingStudents.filter(s => s.classId === classId);
@@ -150,13 +137,9 @@ export async function POST(request: NextRequest) {
           const actualStudentCount = sectionStudents.length;
           if (actualStudentCount > 0) {
             // Cập nhật sĩ số cho lớp (dùng số học sinh thực tế hoặc sĩ số từ file, lấy số lớn hơn)
-            if (existingClass) {
-              existingClass.siSo = Math.max(existingClass.siSo, actualStudentCount);
-            } else {
-              const newClassIndex = newClasses.findIndex(c => c.id === classId);
-              if (newClassIndex >= 0) {
-                newClasses[newClassIndex].siSo = Math.max(newClasses[newClassIndex].siSo, actualStudentCount);
-              }
+            const newClassIndex = newClasses.findIndex(c => c.id === classId);
+            if (newClassIndex >= 0) {
+              newClasses[newClassIndex].siSo = Math.max(newClasses[newClassIndex].siSo, actualStudentCount);
             }
           }
           
@@ -238,31 +221,17 @@ export async function POST(request: NextRequest) {
         // Lấy thangNam từ classInfo để dùng cho tất cả học sinh trong lớp này
         const classThangNam = classInfo.thangNam;
         
-        // Tìm hoặc tạo class
-        let classId: string;
-        const existingClass = existingClasses.find(
-          c => c.tenLop === classInfo.tenLop && c.thangNam === classInfo.thangNam
-        );
-        
-        if (existingClass) {
-          classId = existingClass.id;
-          // Cập nhật thông tin lớp
-          existingClass.giaoVien = classInfo.giaoVien;
-          existingClass.siSo = classInfo.siSo;
-          existingClass.thoiGianHoc = classInfo.thoiGianHoc;
-          existingClass.trungTam = classInfo.trungTam;
-          existingClass.updatedAt = new Date().toISOString();
-        } else {
-          classId = uuidv4();
-          const newClass: ClassInfo = {
-            id: classId,
-            ...classInfo,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-          newClasses.push(newClass);
-          existingClasses.push(newClass);
-        }
+        // Luôn tạo lớp mới (không gộp) - mỗi sheet là một lớp riêng
+        // Điều này cho phép có nhiều lớp cùng tên nhưng khác tháng/năm hoặc khác sheet
+        const classId = uuidv4();
+        const newClass: ClassInfo = {
+          id: classId,
+          ...classInfo,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        newClasses.push(newClass);
+        existingClasses.push(newClass);
 
         // Đếm số học sinh hiện có trong lớp này để tính STT
         const studentsInClass = existingStudents.filter(s => s.classId === classId);
@@ -629,21 +598,28 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
 
     const rowText = row.map((cell: any) => String(cell || '').trim()).join(' ').toLowerCase();
 
-    // Tìm tháng/năm từ header (ví dụ: "Tháng 10/2025" trong cell B1)
+    // Tìm tháng/năm từ header (ví dụ: "Tháng 10/2025" hoặc "01/10/2025" trong cell B1)
     // Tìm trong từng cell để chính xác hơn
     for (let col = 0; col < row.length; col++) {
       const cell = String(row[col] || '').trim();
-      // Tìm pattern "Tháng 10/2025" hoặc "Tháng10/2025" hoặc "10/2025"
-      const thangMatch = cell.match(/tháng\s*(\d{1,2}\/\d{4})/i);
+      
+      // Tìm pattern "Tháng 10/2025" hoặc "Tháng10/2025" - parse thành "01/10/2025"
+      const thangMatch = cell.match(/tháng\s*(\d{1,2})\/(\d{4})/i);
       if (thangMatch) {
-        thangNam = thangMatch[1];
+        const month = thangMatch[1].padStart(2, '0');
+        const year = thangMatch[2];
+        thangNam = `01/${month}/${year}`; // Format: dd/mm/yyyy (ngày đầu tháng)
         break;
       }
-      // Nếu không có từ "Tháng", thử tìm format "10/2025" hoặc "09/2025" ở các dòng đầu
+      
+      // Tìm format đầy đủ "01/10/2025" hoặc "1/10/2025" ở các dòng đầu
       if (i < 3) {
-        const dateMatch = cell.match(/^(\d{1,2}\/\d{4})$/);
+        const dateMatch = cell.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
         if (dateMatch) {
-          thangNam = dateMatch[1];
+          const day = dateMatch[1].padStart(2, '0');
+          const month = dateMatch[2].padStart(2, '0');
+          const year = dateMatch[3];
+          thangNam = `${day}/${month}/${year}`; // Format: dd/mm/yyyy
           break;
         }
       }
