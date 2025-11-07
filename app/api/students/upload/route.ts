@@ -110,6 +110,9 @@ export async function POST(request: NextRequest) {
           // Parse thông tin lớp từ các dòng đầu
           const classInfo = parseClassInfo(section.data, section.header);
           
+          // Lấy thangNam từ classInfo để dùng cho tất cả học sinh trong lớp này
+          const classThangNam = classInfo.thangNam;
+          
           // Tìm hoặc tạo class
           let classId: string;
           const existingClass = existingClasses.find(
@@ -140,7 +143,7 @@ export async function POST(request: NextRequest) {
           let classStudentCount = studentsInClass.length;
           
           // Parse students từ section này
-          const sectionStudents = parseStudentsFromData(section.data, classId, studentsInClass, allNewStudents, classStudentCount);
+          const sectionStudents = parseStudentsFromData(section.data, classId, studentsInClass, allNewStudents, classStudentCount, classThangNam);
           allNewStudents.push(...sectionStudents);
           
           // Cập nhật sĩ số dựa trên số học sinh thực tế được import
@@ -231,6 +234,9 @@ export async function POST(request: NextRequest) {
 
         // Parse thông tin lớp từ các dòng đầu (1-4)
         const classInfo = parseClassInfo(jsonData, sheetName);
+        
+        // Lấy thangNam từ classInfo để dùng cho tất cả học sinh trong lớp này
+        const classThangNam = classInfo.thangNam;
         
         // Tìm hoặc tạo class
         let classId: string;
@@ -460,20 +466,10 @@ export async function POST(request: NextRequest) {
         const soDienThoai = columns[soDienThoaiColIndex] || '';
         const ngayDong = columns[ngayDongColIndex] || '';
         const kyTen = columns[kyTenColIndex] || '';
-        const thangNamRaw = thangNamColIndex >= 0 ? columns[thangNamColIndex] || '' : '';
-
-        // Parse thangNam từ format dd/mm/yyyy thành mm/yyyy
-        let thangNam = '';
-        if (thangNamRaw) {
-          const dateMatch = thangNamRaw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-          if (dateMatch) {
-            const month = dateMatch[2];
-            const year = dateMatch[3];
-            thangNam = `${month}/${year}`;
-          }
-        }
         
-        // Nếu không tìm thấy từ cột riêng, thử lấy từ ngayDong
+        // Dùng thangNam từ classInfo (đã parse từ header "Tháng 10/2025")
+        // Nếu không có, thử parse từ ngayDong như fallback
+        let thangNam = classThangNam || '';
         if (!thangNam && ngayDong) {
           const dateMatch = ngayDong.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
           if (dateMatch) {
@@ -663,10 +659,24 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
 
     const rowText = row.map((cell: any) => String(cell || '').trim()).join(' ').toLowerCase();
 
-    // Tìm tháng/năm (ví dụ: "Tháng 09/2025")
-    const thangMatch = rowText.match(/tháng\s*(\d{2}\/\d{4})/i);
-    if (thangMatch) {
-      thangNam = thangMatch[1];
+    // Tìm tháng/năm từ header (ví dụ: "Tháng 10/2025" trong cell B1)
+    // Tìm trong từng cell để chính xác hơn
+    for (let col = 0; col < row.length; col++) {
+      const cell = String(row[col] || '').trim();
+      // Tìm pattern "Tháng 10/2025" hoặc "Tháng10/2025" hoặc "10/2025"
+      const thangMatch = cell.match(/tháng\s*(\d{1,2}\/\d{4})/i);
+      if (thangMatch) {
+        thangNam = thangMatch[1];
+        break;
+      }
+      // Nếu không có từ "Tháng", thử tìm format "10/2025" hoặc "09/2025" ở các dòng đầu
+      if (i < 3) {
+        const dateMatch = cell.match(/^(\d{1,2}\/\d{4})$/);
+        if (dateMatch) {
+          thangNam = dateMatch[1];
+          break;
+        }
+      }
     }
 
     // Tìm tên trung tâm
@@ -812,7 +822,8 @@ function parseStudentsFromData(
   classId: string,
   studentsInClass: Student[],
   allNewStudents: Student[],
-  classStudentCount: number
+  classStudentCount: number,
+  classThangNam: string = ''
 ): Student[] {
   const newStudents: Student[] = [];
   let currentClassStudentCount = classStudentCount;
@@ -927,20 +938,10 @@ function parseStudentsFromData(
     const soDienThoai = columns[soDienThoaiColIndex] || '';
     const ngayDong = columns[ngayDongColIndex] || '';
     const kyTen = columns[kyTenColIndex] || '';
-    const thangNamRaw = thangNamColIndex >= 0 ? columns[thangNamColIndex] || '' : '';
-
-    // Parse thangNam từ format dd/mm/yyyy thành mm/yyyy
-    let thangNam = '';
-    if (thangNamRaw) {
-      const dateMatch = thangNamRaw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (dateMatch) {
-        const month = dateMatch[2];
-        const year = dateMatch[3];
-        thangNam = `${month}/${year}`;
-      }
-    }
     
-    // Nếu không tìm thấy từ cột riêng, thử lấy từ ngayDong
+    // Dùng thangNam từ classInfo (đã parse từ header "Tháng 10/2025")
+    // Nếu không có, thử parse từ ngayDong như fallback
+    let thangNam = classThangNam || '';
     if (!thangNam && ngayDong) {
       const dateMatch = ngayDong.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       if (dateMatch) {
