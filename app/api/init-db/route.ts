@@ -24,9 +24,9 @@ export async function GET() {
     console.log('Connection string (first 50 chars):', postgresUrl.substring(0, 50) + '...');
     console.log('Is Neon:', postgresUrl.includes('neon.tech'));
 
-    // Thêm timeout cho database initialization
+    // Thêm timeout cho database initialization (60 giây cho Neon)
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Database initialization timeout after 30 seconds')), 30000);
+      setTimeout(() => reject(new Error('Database initialization timeout after 60 seconds')), 60000);
     });
 
     const initPromise = initDatabase();
