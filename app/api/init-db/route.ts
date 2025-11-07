@@ -2,6 +2,8 @@
 import { NextResponse } from 'next/server';
 import { initDatabase } from '@/lib/db-postgres';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     await initDatabase();

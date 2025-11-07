@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUsers } from '@/lib/db';
 import { verifyPassword, generateToken, setAuthCookie } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json();

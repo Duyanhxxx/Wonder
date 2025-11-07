@@ -4,6 +4,8 @@ import { getStudents, saveStudents, getClasses, saveClasses, Student, ClassInfo 
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser(request);
