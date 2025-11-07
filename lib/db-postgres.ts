@@ -144,17 +144,30 @@ export async function initDatabase() {
   }
 }
 
+// Helper function để xử lý kết quả từ Neon hoặc Vercel Postgres
+function getRows(result: any): any[] {
+  // Neon trả về array trực tiếp, Vercel Postgres trả về object có property rows
+  if (Array.isArray(result)) {
+    return result;
+  }
+  if (result && Array.isArray(result.rows)) {
+    return result.rows;
+  }
+  return [];
+}
+
 // User functions
 export async function getUsersPostgres(): Promise<User[]> {
   try {
     const sql = await getSql();
     const result = await sql`SELECT * FROM users ORDER BY created_at DESC`;
-    return result.rows.map((row: any) => ({
+    const rows = getRows(result);
+    return rows.map((row: any) => ({
       id: row.id,
       email: row.email,
       password: row.password,
       name: row.name,
-      createdAt: row.created_at.toISOString(),
+      createdAt: row.created_at ? (typeof row.created_at === 'string' ? row.created_at : row.created_at.toISOString()) : new Date().toISOString(),
     }));
   } catch (error: any) {
     console.error('Get users error:', error);
@@ -166,12 +179,13 @@ export async function getUsersPostgres(): Promise<User[]> {
         // Thử lại sau khi init
         const sql = await getSql();
         const result = await sql`SELECT * FROM users ORDER BY created_at DESC`;
-        return result.rows.map((row: any) => ({
+        const rows = getRows(result);
+        return rows.map((row: any) => ({
           id: row.id,
           email: row.email,
           password: row.password,
           name: row.name,
-          createdAt: row.created_at.toISOString(),
+          createdAt: row.created_at ? (typeof row.created_at === 'string' ? row.created_at : row.created_at.toISOString()) : new Date().toISOString(),
         }));
       } catch (initError) {
         console.error('Auto-init failed:', initError);
@@ -231,7 +245,8 @@ export async function getStudentsPostgres(): Promise<Student[]> {
   try {
     const sql = await getSql();
     const result = await sql`SELECT * FROM students ORDER BY stt ASC`;
-    return result.rows.map((row: any) => ({
+    const rows = getRows(result);
+    return rows.map((row: any) => ({
       id: row.id,
       classId: row.class_id || '',
       stt: row.stt,
@@ -253,8 +268,8 @@ export async function getStudentsPostgres(): Promise<Student[]> {
       ghiChu: row.ghi_chu || '',
       chietKhau: parseFloat(row.chiet_khau) || 0,
       phanTram: parseFloat(row.phan_tram) || 0,
-      createdAt: row.created_at.toISOString(),
-      updatedAt: row.updated_at.toISOString(),
+      createdAt: row.created_at ? (typeof row.created_at === 'string' ? row.created_at : row.created_at.toISOString()) : new Date().toISOString(),
+      updatedAt: row.updated_at ? (typeof row.updated_at === 'string' ? row.updated_at : row.updated_at.toISOString()) : new Date().toISOString(),
     }));
   } catch (error) {
     console.error('Get students error:', error);
@@ -328,7 +343,8 @@ export async function getClassesPostgres(): Promise<ClassInfo[]> {
   try {
     const sql = await getSql();
     const result = await sql`SELECT * FROM classes ORDER BY created_at DESC`;
-    return result.rows.map((row: any) => ({
+    const rows = getRows(result);
+    return rows.map((row: any) => ({
       id: row.id,
       tenLop: row.ten_lop,
       giaoVien: row.giao_vien || '',
@@ -336,8 +352,8 @@ export async function getClassesPostgres(): Promise<ClassInfo[]> {
       thangNam: row.thang_nam || '',
       thoiGianHoc: row.thoi_gian_hoc || '',
       trungTam: row.trung_tam || '',
-      createdAt: row.created_at.toISOString(),
-      updatedAt: row.updated_at.toISOString(),
+      createdAt: row.created_at ? (typeof row.created_at === 'string' ? row.created_at : row.created_at.toISOString()) : new Date().toISOString(),
+      updatedAt: row.updated_at ? (typeof row.updated_at === 'string' ? row.updated_at : row.updated_at.toISOString()) : new Date().toISOString(),
     }));
   } catch (error) {
     console.error('Get classes error:', error);
