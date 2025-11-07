@@ -18,7 +18,7 @@ export default function DashboardPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>(''); // Filter theo tháng (ví dụ: "10/2025")
-  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]); // Danh sách lớp được chọn
+  const [initializingDb, setInitializingDb] = useState(false); // Trạng thái đang khởi tạo DB
 
   const checkAuth = useCallback(async () => {
     try {
@@ -132,7 +132,6 @@ export default function DashboardPage() {
         const data = await res.json();
         alert(data.message || 'Đã xóa lớp thành công');
         loadClasses();
-        setSelectedClassIds([]);
       } else {
         const data = await res.json();
         alert(data.error || 'Lỗi khi xóa lớp');
@@ -147,63 +146,6 @@ export default function DashboardPage() {
     }
   };
 
-  const handleBulkDeleteClasses = async () => {
-    if (selectedClassIds.length === 0) {
-      alert('Vui lòng chọn ít nhất một lớp để xóa');
-      return;
-    }
-
-    if (!confirm(`Bạn có chắc muốn xóa ${selectedClassIds.length} lớp? Tất cả học sinh trong các lớp này sẽ bị xóa.`)) {
-      return;
-    }
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
-
-      const res = await fetch('/api/classes/bulk-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ classIds: selectedClassIds }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data = await res.json();
-        alert(data.message || `Đã xóa ${selectedClassIds.length} lớp thành công`);
-        loadClasses();
-        setSelectedClassIds([]);
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Lỗi khi xóa lớp');
-      }
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        alert('Xóa lớp timeout. Vui lòng thử lại hoặc kiểm tra kết nối database.');
-      } else {
-        console.error('Bulk delete classes error:', error);
-        alert('Lỗi khi xóa lớp: ' + (error.message || 'Unknown error'));
-      }
-    }
-  };
-
-  const handleToggleClassSelection = (classId: string) => {
-    setSelectedClassIds(prev => 
-      prev.includes(classId) 
-        ? prev.filter(id => id !== classId)
-        : [...prev, classId]
-    );
-  };
-
-  const handleSelectAllClasses = () => {
-    if (selectedClassIds.length === filteredClasses.length) {
-      setSelectedClassIds([]);
-    } else {
-      setSelectedClassIds(filteredClasses.map(c => c.id));
-    }
-  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -331,12 +273,46 @@ export default function DashboardPage() {
             </button>
             {error.includes('init-db') && (
               <button
-                onClick={() => {
-                  window.open(`${window.location.origin}/api/init-db`, '_blank');
+                onClick={async () => {
+                  setInitializingDb(true);
+                  try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+                    
+                    const res = await fetch('/api/init-db', {
+                      signal: controller.signal,
+                      cache: 'no-store',
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (res.ok) {
+                      const data = await res.json();
+                      alert(`✅ ${data.message}\n\nĐã tạo các bảng: ${data.tables?.join(', ') || 'users, classes, students'}`);
+                      // Reload sau khi khởi tạo thành công
+                      setError(null);
+                      setLoading(true);
+                      checkAuth();
+                      loadClasses();
+                    } else {
+                      const data = await res.json();
+                      alert(`❌ Lỗi: ${data.error}\n\n${data.hint || ''}`);
+                    }
+                  } catch (error: any) {
+                    console.error('Init DB error:', error);
+                    if (error.name === 'AbortError') {
+                      alert('⏱️ Timeout sau 60 giây. Vui lòng thử lại hoặc truy cập trực tiếp /api/init-db');
+                    } else {
+                      alert(`❌ Lỗi: ${error.message || 'Unknown error'}`);
+                    }
+                  } finally {
+                    setInitializingDb(false);
+                  }
                 }}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                disabled={initializingDb}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
-                Khởi tạo DB
+                {initializingDb ? 'Đang khởi tạo...' : 'Khởi tạo DB'}
               </button>
             )}
           </div>
@@ -438,22 +414,6 @@ export default function DashboardPage() {
               </select>
             </div>
             
-            {selectedClassIds.length > 0 && (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-700 font-medium">
-                  Đã chọn: {selectedClassIds.length} lớp
-                </span>
-                <button
-                  onClick={handleBulkDeleteClasses}
-                  className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 font-semibold flex items-center gap-2 shadow-md hover:shadow-lg"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Xóa {selectedClassIds.length} lớp
-                </button>
-              </div>
-            )}
           </div>
         </div>
 
@@ -541,34 +501,15 @@ export default function DashboardPage() {
             )}
           </div>
         ) : (
-          <div className="space-y-4">
-            {/* Select all checkbox */}
-            {filteredClasses.length > 0 && (
-              <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm p-3 rounded-xl shadow-md border border-gray-200/50">
-                <input
-                  type="checkbox"
-                  checked={selectedClassIds.length === filteredClasses.length && filteredClasses.length > 0}
-                  onChange={handleSelectAllClasses}
-                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                />
-                <label className="text-sm font-medium text-gray-700">
-                  Chọn tất cả ({filteredClasses.length} lớp)
-                </label>
-              </div>
-            )}
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredClasses.map((classInfo) => (
-                <ClassCard
-                  key={classInfo.id}
-                  classInfo={classInfo}
-                  isSelected={selectedClassIds.includes(classInfo.id)}
-                  onSelect={() => handleToggleClassSelection(classInfo.id)}
-                  onEdit={() => handleEditClass(classInfo)}
-                  onDelete={() => handleDeleteClass(classInfo.id)}
-                />
-              ))}
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredClasses.map((classInfo) => (
+              <ClassCard
+                key={classInfo.id}
+                classInfo={classInfo}
+                onEdit={() => handleEditClass(classInfo)}
+                onDelete={() => handleDeleteClass(classInfo.id)}
+              />
+            ))}
           </div>
         )}
       </main>
@@ -703,14 +644,10 @@ export default function DashboardPage() {
 // Class Card Component (Trello-like)
 function ClassCard({
   classInfo,
-  isSelected,
-  onSelect,
   onEdit,
   onDelete,
 }: {
   classInfo: ClassInfo;
-  isSelected: boolean;
-  onSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -745,26 +682,11 @@ function ClassCard({
           <div className="absolute inset-0 bg-black/10 group-hover:bg-black/5 transition-all"></div>
           <div className="relative z-10">
             <div className="flex justify-between items-start mb-3">
-              <div className="flex items-center gap-3 flex-1">
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onSelect();
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                  }}
-                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 bg-white/20 border-white/50"
-                />
-                <div className="flex-1">
-                  <h3 className="text-white font-bold text-xl mb-1 drop-shadow-md">{classInfo.tenLop}</h3>
-                  {classInfo.giaoVien && (
-                    <div className="text-blue-100 text-sm font-medium">👨‍🏫 {classInfo.giaoVien}</div>
-                  )}
-                </div>
+              <div className="flex-1">
+                <h3 className="text-white font-bold text-xl mb-1 drop-shadow-md">{classInfo.tenLop}</h3>
+                {classInfo.giaoVien && (
+                  <div className="text-blue-100 text-sm font-medium">👨‍🏫 {classInfo.giaoVien}</div>
+                )}
               </div>
               <div className="flex gap-1">
                 <button

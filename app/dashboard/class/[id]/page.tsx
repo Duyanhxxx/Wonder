@@ -18,7 +18,6 @@ export default function ClassDetailPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
   const checkAuth = useCallback(async () => {
     try {
@@ -89,7 +88,6 @@ export default function ClassDetailPage() {
 
       if (res.ok) {
         loadStudents();
-        setSelectedStudentIds(prev => prev.filter(sid => sid !== id));
       } else {
         const data = await res.json();
         alert(data.error || 'Lỗi khi xóa học sinh');
@@ -99,53 +97,6 @@ export default function ClassDetailPage() {
     }
   };
 
-  const handleBulkDeleteStudents = async () => {
-    if (selectedStudentIds.length === 0) {
-      alert('Vui lòng chọn ít nhất một học sinh để xóa');
-      return;
-    }
-
-    if (!confirm(`Bạn có chắc muốn xóa ${selectedStudentIds.length} học sinh?`)) {
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/students/bulk-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentIds: selectedStudentIds }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        alert(data.message || `Đã xóa ${selectedStudentIds.length} học sinh thành công`);
-        loadStudents();
-        setSelectedStudentIds([]);
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Lỗi khi xóa học sinh');
-      }
-    } catch (error: any) {
-      console.error('Bulk delete students error:', error);
-      alert('Lỗi khi xóa học sinh: ' + (error.message || 'Unknown error'));
-    }
-  };
-
-  const handleToggleStudentSelection = (studentId: string) => {
-    setSelectedStudentIds(prev => 
-      prev.includes(studentId) 
-        ? prev.filter(id => id !== studentId)
-        : [...prev, studentId]
-    );
-  };
-
-  const handleSelectAllStudents = () => {
-    if (selectedStudentIds.length === filteredStudents.length) {
-      setSelectedStudentIds([]);
-    } else {
-      setSelectedStudentIds(filteredStudents.map(s => s.id));
-    }
-  };
 
   const filteredStudents = students.filter((student) =>
     student.hoVaTen.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -277,24 +228,6 @@ export default function ClassDetailPage() {
               </button>
             </div>
           </div>
-          
-          {/* Bulk actions */}
-          {selectedStudentIds.length > 0 && (
-            <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm p-4 rounded-xl shadow-md border border-gray-200/50">
-              <span className="text-sm text-gray-700 font-medium">
-                Đã chọn: {selectedStudentIds.length} học sinh
-              </span>
-              <button
-                onClick={handleBulkDeleteStudents}
-                className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 font-semibold flex items-center gap-2 shadow-md hover:shadow-lg"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                Xóa {selectedStudentIds.length} học sinh
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Students Table */}
@@ -303,14 +236,6 @@ export default function ClassDetailPage() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider w-12">
-                    <input
-                      type="checkbox"
-                      checked={selectedStudentIds.length === filteredStudents.length && filteredStudents.length > 0}
-                      onChange={handleSelectAllStudents}
-                      className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                    />
-                  </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                     STT
                   </th>
@@ -358,14 +283,6 @@ export default function ClassDetailPage() {
                     const attendanceCount = Object.values(student.diemDanh).filter(Boolean).length;
                     return (
                       <tr key={student.id} className="hover:bg-blue-50/50 transition-colors duration-150 border-b border-gray-100">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <input
-                            type="checkbox"
-                            checked={selectedStudentIds.includes(student.id)}
-                            onChange={() => handleToggleStudentSelection(student.id)}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                          />
-                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-sm font-bold shadow-md">
