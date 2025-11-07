@@ -1,12 +1,61 @@
-// Database adapter cho Vercel Postgres
-// Sử dụng file này khi deploy lên Vercel với Postgres
+// Database adapter cho Vercel Postgres / Neon
+// Hỗ trợ cả @vercel/postgres và Neon (qua connection string)
 
 import { User, Student, ClassInfo } from './db';
 
 // Dynamic import để tránh lỗi khi package chưa được cài đặt
 async function getSql() {
-  const { sql } = await import('@vercel/postgres');
-  return sql;
+  // Kiểm tra xem có POSTGRES_URL không (có thể từ Neon hoặc Vercel Postgres)
+  const postgresUrl = process.env.POSTGRES_URL;
+  
+  if (!postgresUrl) {
+    throw new Error('POSTGRES_URL environment variable is not set');
+  }
+
+  // Kiểm tra xem có dùng Neon không (Neon connection string thường có @neon.tech hoặc neon.tech)
+  const isNeon = postgresUrl.includes('@neon.tech') || postgresUrl.includes('neon.tech') || postgresUrl.includes('neon.tech');
+  
+  if (isNeon) {
+    // Dùng Neon
+    try {
+      const { neon } = await import('@neondatabase/serverless');
+      const sql = neon(postgresUrl);
+      
+      // Wrap để tương thích với @vercel/postgres template literal API
+      return new Proxy({} as any, {
+        get(_target, _prop) {
+          return (strings: TemplateStringsArray, ...values: any[]) => {
+            // Build query string với parameterized queries
+            let query = '';
+            const params: any[] = [];
+            let paramIndex = 1;
+            
+            for (let i = 0; i < strings.length; i++) {
+              query += strings[i];
+              if (i < values.length) {
+                query += `$${paramIndex}`;
+                params.push(values[i]);
+                paramIndex++;
+              }
+            }
+            
+            // Execute với Neon (Neon hỗ trợ template literals tương tự)
+            return sql(query, params);
+          };
+        }
+      });
+    } catch (neonError) {
+      throw new Error('Failed to initialize Neon database. Make sure @neondatabase/serverless is installed.');
+    }
+  } else {
+    // Dùng @vercel/postgres (cho Vercel Postgres)
+    try {
+      const { sql } = await import('@vercel/postgres');
+      return sql;
+    } catch (error) {
+      throw new Error('Failed to initialize Vercel Postgres. Make sure @vercel/postgres is installed.');
+    }
+  }
 }
 
 // Khởi tạo tables (chạy một lần)
@@ -77,7 +126,7 @@ export async function getUsersPostgres(): Promise<User[]> {
   try {
     const sql = await getSql();
     const result = await sql`SELECT * FROM users ORDER BY created_at DESC`;
-    return result.rows.map((row) => ({
+    return result.rows.map((row: any) => ({
       id: row.id,
       email: row.email,
       password: row.password,
@@ -118,7 +167,7 @@ export async function getStudentsPostgres(): Promise<Student[]> {
   try {
     const sql = await getSql();
     const result = await sql`SELECT * FROM students ORDER BY stt ASC`;
-    return result.rows.map((row) => ({
+    return result.rows.map((row: any) => ({
       id: row.id,
       classId: row.class_id || '',
       stt: row.stt,
@@ -215,7 +264,7 @@ export async function getClassesPostgres(): Promise<ClassInfo[]> {
   try {
     const sql = await getSql();
     const result = await sql`SELECT * FROM classes ORDER BY created_at DESC`;
-    return result.rows.map((row) => ({
+    return result.rows.map((row: any) => ({
       id: row.id,
       tenLop: row.ten_lop,
       giaoVien: row.giao_vien || '',
