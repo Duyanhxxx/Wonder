@@ -35,31 +35,23 @@ async function getSql() {
       
       // Neon serverless hỗ trợ template literals trực tiếp
       // Wrap để tương thích với @vercel/postgres API
-      return new Proxy({} as any, {
-        get(_target, _prop) {
-          return async (strings: TemplateStringsArray, ...values: any[]) => {
-            try {
-              // Kiểm tra và filter undefined values
-              const cleanValues = values.map(v => {
-                if (v === undefined) {
-                  console.warn('Undefined value detected in query, replacing with null');
-                  return null;
-                }
-                return v;
-              });
-              
-              // Neon hỗ trợ template literals trực tiếp
-              // Gọi sql với template literal (Neon tự động handle parameterization)
-              return await sql(strings, ...cleanValues);
-            } catch (error: any) {
-              console.error('Query execution error:', error);
-              console.error('Query strings:', strings);
-              console.error('Query values:', values);
-              throw error;
-            }
-          };
-        }
-      });
+      // Tạo một function wrapper đơn giản
+      const wrappedSql = ((strings: TemplateStringsArray, ...values: any[]) => {
+        // Kiểm tra và filter undefined values
+        const cleanValues = values.map(v => {
+          if (v === undefined) {
+            console.warn('Undefined value detected in query, replacing with null');
+            return null;
+          }
+          return v;
+        });
+        
+        // Neon hỗ trợ template literals trực tiếp
+        return sql(strings, ...cleanValues);
+      }) as any;
+      
+      // Trả về object với method giống Vercel Postgres
+      return wrappedSql;
     } catch (neonError: any) {
       console.error('Neon initialization error:', neonError);
       throw new Error(`Failed to initialize Neon database: ${neonError?.message || 'Unknown error'}. Make sure @neondatabase/serverless is installed.`);
@@ -86,126 +78,62 @@ export async function initDatabase() {
     const postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || '';
     const isNeon = postgresUrl.includes('neon.tech');
     
-    if (isNeon) {
-      // Với Neon, dùng raw SQL strings cho CREATE TABLE (không có parameters)
-      console.log('Using raw SQL strings for Neon CREATE TABLE');
-      
-      const { neon } = await import('@neondatabase/serverless');
-      const neonSql = neon(postgresUrl);
-      
-      console.log('Creating users table...');
-      await neonSql(`
-        CREATE TABLE IF NOT EXISTS users (
-          id VARCHAR(255) PRIMARY KEY,
-          email VARCHAR(255) UNIQUE NOT NULL,
-          password VARCHAR(255) NOT NULL,
-          name VARCHAR(255) NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      console.log('Users table created');
+    // Dùng sql từ getSql() (đã được wrap đúng cách)
+    console.log('Creating users table...');
+    await sql`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(255) PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    console.log('Users table created');
 
-      console.log('Creating classes table...');
-      await neonSql(`
-        CREATE TABLE IF NOT EXISTS classes (
-          id VARCHAR(255) PRIMARY KEY,
-          ten_lop VARCHAR(255) NOT NULL,
-          giao_vien VARCHAR(255),
-          si_so INTEGER DEFAULT 0,
-          thang_nam VARCHAR(20),
-          thoi_gian_hoc VARCHAR(255),
-          trung_tam VARCHAR(255),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      console.log('Classes table created');
+    console.log('Creating classes table...');
+    await sql`
+      CREATE TABLE IF NOT EXISTS classes (
+        id VARCHAR(255) PRIMARY KEY,
+        ten_lop VARCHAR(255) NOT NULL,
+        giao_vien VARCHAR(255),
+        si_so INTEGER DEFAULT 0,
+        thang_nam VARCHAR(20),
+        thoi_gian_hoc VARCHAR(255),
+        trung_tam VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    console.log('Classes table created');
 
-      console.log('Creating students table...');
-      await neonSql(`
-        CREATE TABLE IF NOT EXISTS students (
-          id VARCHAR(255) PRIMARY KEY,
-          class_id VARCHAR(255),
-          stt INTEGER NOT NULL,
-          ho_va_ten VARCHAR(255) NOT NULL,
-          ngay_vao VARCHAR(255),
-          so_dien_thoai VARCHAR(20),
-          ngay_dong VARCHAR(255),
-          ky_ten VARCHAR(255),
-          diem_danh_b1 BOOLEAN DEFAULT FALSE,
-          diem_danh_b2 BOOLEAN DEFAULT FALSE,
-          diem_danh_b3 BOOLEAN DEFAULT FALSE,
-          diem_danh_b4 BOOLEAN DEFAULT FALSE,
-          diem_danh_b5 BOOLEAN DEFAULT FALSE,
-          diem_danh_b6 BOOLEAN DEFAULT FALSE,
-          diem_danh_b7 BOOLEAN DEFAULT FALSE,
-          diem_danh_b8 BOOLEAN DEFAULT FALSE,
-          ghi_chu TEXT,
-          chiet_khau DECIMAL(10,2) DEFAULT 0,
-          phan_tram DECIMAL(5,2) DEFAULT 0,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      console.log('Students table created');
-    } else {
-      // Với Vercel Postgres, dùng template literals như bình thường
-      console.log('Creating users table...');
-      await sql`
-        CREATE TABLE IF NOT EXISTS users (
-          id VARCHAR(255) PRIMARY KEY,
-          email VARCHAR(255) UNIQUE NOT NULL,
-          password VARCHAR(255) NOT NULL,
-          name VARCHAR(255) NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `;
-      console.log('Users table created');
-
-      console.log('Creating classes table...');
-      await sql`
-        CREATE TABLE IF NOT EXISTS classes (
-          id VARCHAR(255) PRIMARY KEY,
-          ten_lop VARCHAR(255) NOT NULL,
-          giao_vien VARCHAR(255),
-          si_so INTEGER DEFAULT 0,
-          thang_nam VARCHAR(20),
-          thoi_gian_hoc VARCHAR(255),
-          trung_tam VARCHAR(255),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `;
-      console.log('Classes table created');
-
-      console.log('Creating students table...');
-      await sql`
-        CREATE TABLE IF NOT EXISTS students (
-          id VARCHAR(255) PRIMARY KEY,
-          class_id VARCHAR(255),
-          stt INTEGER NOT NULL,
-          ho_va_ten VARCHAR(255) NOT NULL,
-          ngay_vao VARCHAR(255),
-          so_dien_thoai VARCHAR(20),
-          ngay_dong VARCHAR(255),
-          ky_ten VARCHAR(255),
-          diem_danh_b1 BOOLEAN DEFAULT FALSE,
-          diem_danh_b2 BOOLEAN DEFAULT FALSE,
-          diem_danh_b3 BOOLEAN DEFAULT FALSE,
-          diem_danh_b4 BOOLEAN DEFAULT FALSE,
-          diem_danh_b5 BOOLEAN DEFAULT FALSE,
-          diem_danh_b6 BOOLEAN DEFAULT FALSE,
-          diem_danh_b7 BOOLEAN DEFAULT FALSE,
-          diem_danh_b8 BOOLEAN DEFAULT FALSE,
-          ghi_chu TEXT,
-          chiet_khau DECIMAL(10,2) DEFAULT 0,
-          phan_tram DECIMAL(5,2) DEFAULT 0,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `;
-      console.log('Students table created');
-    }
+    console.log('Creating students table...');
+    await sql`
+      CREATE TABLE IF NOT EXISTS students (
+        id VARCHAR(255) PRIMARY KEY,
+        class_id VARCHAR(255),
+        stt INTEGER NOT NULL,
+        ho_va_ten VARCHAR(255) NOT NULL,
+        ngay_vao VARCHAR(255),
+        so_dien_thoai VARCHAR(20),
+        ngay_dong VARCHAR(255),
+        ky_ten VARCHAR(255),
+        diem_danh_b1 BOOLEAN DEFAULT FALSE,
+        diem_danh_b2 BOOLEAN DEFAULT FALSE,
+        diem_danh_b3 BOOLEAN DEFAULT FALSE,
+        diem_danh_b4 BOOLEAN DEFAULT FALSE,
+        diem_danh_b5 BOOLEAN DEFAULT FALSE,
+        diem_danh_b6 BOOLEAN DEFAULT FALSE,
+        diem_danh_b7 BOOLEAN DEFAULT FALSE,
+        diem_danh_b8 BOOLEAN DEFAULT FALSE,
+        ghi_chu TEXT,
+        chiet_khau DECIMAL(10,2) DEFAULT 0,
+        phan_tram DECIMAL(5,2) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    console.log('Students table created');
     
     console.log('Database initialization completed successfully');
   } catch (error: any) {
