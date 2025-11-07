@@ -143,6 +143,20 @@ export async function POST(request: NextRequest) {
           const sectionStudents = parseStudentsFromData(section.data, classId, studentsInClass, allNewStudents, classStudentCount);
           allNewStudents.push(...sectionStudents);
           
+          // Cập nhật sĩ số dựa trên số học sinh thực tế được import
+          const actualStudentCount = sectionStudents.length;
+          if (actualStudentCount > 0) {
+            // Cập nhật sĩ số cho lớp (dùng số học sinh thực tế hoặc sĩ số từ file, lấy số lớn hơn)
+            if (existingClass) {
+              existingClass.siSo = Math.max(existingClass.siSo, actualStudentCount);
+            } else {
+              const newClassIndex = newClasses.findIndex(c => c.id === classId);
+              if (newClassIndex >= 0) {
+                newClasses[newClassIndex].siSo = Math.max(newClasses[newClassIndex].siSo, actualStudentCount);
+              }
+            }
+          }
+          
           // Cập nhật classStudentCount cho các section tiếp theo
           classStudentCount += sectionStudents.length;
         }
@@ -586,12 +600,12 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
   let thoiGianHoc = '';
   let trungTam = '';
 
-  // Nếu sheetName có format "6A9-Toán-C. Phượng", parse từ đó
+  // Nếu sheetName có format "6A9-Toán-C. Phượng" hoặc "K8A9-A.Văn-C. Lê", parse từ đó
   // Format: "Lớp-Môn-Giáo viên" hoặc "Lớp-Môn-G.Viên" hoặc "K8A9-A.Văn-C. Lê"
   // Có thể có 2 hoặc 3 phần được phân cách bởi dấu "-"
   const headerParts = sheetName.split('-').map(p => p.trim());
-  if (headerParts.length >= 2) {
-    // Phần đầu tiên là tên lớp
+  if (headerParts.length >= 1) {
+    // Phần đầu tiên là tên lớp (có thể là "6A9", "K8A9", "8A9", etc.)
     tenLop = headerParts[0].toUpperCase();
     // Phần cuối cùng thường là giáo viên (có thể có "C." hoặc "Cô" hoặc "Thầy")
     if (headerParts.length >= 3) {
@@ -626,18 +640,26 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
       }
     }
 
-    // Tìm lớp (ví dụ: "Lớp: 6A10", "Lớp:8A4", "Lớp 6A10")
-    // Tìm trong toàn bộ row để lấy giá trị sau "Lớp:"
+    // Tìm lớp (ví dụ: "Lớp: 6A10", "Lớp:8A4", "Lớp 6A10", "Lớp: 8A9")
+    // Lưu ý: Header có thể là "K8A9" nhưng trong file lại là "Lớp: 8A9" (không có K)
+    // Ưu tiên lấy từ file, nếu không có thì dùng từ header
     for (let col = 0; col < row.length; col++) {
       const cell = String(row[col] || '').trim();
       const cellLower = cell.toLowerCase();
       
       // Tìm cell có chứa "Lớp:" hoặc "Lớp"
       if (cellLower.includes('lớp')) {
-        // Tìm pattern "Lớp: 6A10" hoặc "Lớp:6A10"
+        // Tìm pattern "Lớp: 6A10" hoặc "Lớp:6A10" hoặc "Lớp: 8A9"
         const lopMatch = cell.match(/lớp\s*:?\s*([a-z0-9A-Z\-_]+)/i);
         if (lopMatch && lopMatch[1]) {
-          tenLop = lopMatch[1].trim().toUpperCase();
+          const foundLop = lopMatch[1].trim().toUpperCase();
+          // Nếu header có "K" (ví dụ: "K8A9") nhưng file có "8A9", giữ nguyên "K8A9"
+          // Nếu header không có "K" nhưng file có, dùng từ file
+          if (tenLop.startsWith('K') && !foundLop.startsWith('K')) {
+            // Giữ nguyên tenLop từ header (có K)
+          } else {
+            tenLop = foundLop;
+          }
           break;
         }
         
@@ -645,8 +667,13 @@ function parseClassInfo(jsonData: any[][], sheetName: string): Omit<ClassInfo, '
         if (col < row.length - 1) {
           const nextCell = String(row[col + 1] || '').trim();
           if (nextCell && nextCell.length > 0 && !nextCell.toLowerCase().includes('lớp')) {
-            // Lấy giá trị từ cell tiếp theo (ví dụ: "Lớp:" ở cột F, "6A10" ở cột G)
-            tenLop = nextCell.trim().toUpperCase();
+            const foundLop = nextCell.trim().toUpperCase();
+            // Tương tự logic trên
+            if (tenLop.startsWith('K') && !foundLop.startsWith('K')) {
+              // Giữ nguyên tenLop từ header (có K)
+            } else {
+              tenLop = foundLop;
+            }
             break;
           }
         }
@@ -823,6 +850,10 @@ function parseStudentsFromData(
   if (ngayDongColIndex === -1) ngayDongColIndex = soDienThoaiColIndex + 1;
   if (kyTenColIndex === -1) kyTenColIndex = ngayDongColIndex + 1;
 
+  // Đếm số học sinh thực tế (chỉ đếm những dòng có tên)
+  // STT sẽ bắt đầu từ số học sinh hiện có trong lớp + 1
+  let actualStudentIndex = classStudentCount; // Bắt đầu từ số học sinh hiện có
+  
   for (let i = dataStartIndex; i < jsonData.length; i++) {
     const row = jsonData[i];
     if (!row || row.length < 2) continue;
@@ -839,25 +870,25 @@ function parseStudentsFromData(
     const ngayDong = columns[ngayDongColIndex] || '';
     const kyTen = columns[kyTenColIndex] || '';
 
-    let stt = parseInt(sttValue);
-    if (isNaN(stt) || stt <= 0) {
-      currentClassStudentCount++;
-      stt = currentClassStudentCount;
-    } else {
-      const existingSttInClass = [...studentsInClass, ...allNewStudents.filter(s => s.classId === classId), ...newStudents]
-        .map(s => s.stt);
-      if (existingSttInClass.includes(stt)) {
-        currentClassStudentCount++;
-        stt = currentClassStudentCount;
-      } else {
-        if (stt > currentClassStudentCount) {
-          currentClassStudentCount = stt;
-        }
-      }
+    // BỎ QUA các dòng trống (không có tên)
+    // Điều này xử lý trường hợp có STT tới 44 nhưng chỉ có 27 học sinh
+    if (!hoVaTen || hoVaTen.trim() === '') {
+      continue; // Bỏ qua dòng trống
+    }
+    
+    // Bỏ qua các dòng tổng kết
+    if (hoVaTen.toLowerCase().includes('tổng') || hoVaTen.includes('#REF!')) {
+      continue;
+    }
+    
+    // Dừng khi gặp dòng "Tổng thu học phí" hoặc các dòng tổng kết khác
+    if (hoVaTen.toLowerCase().includes('tổng thu') || hoVaTen.toLowerCase().includes('tổng tiền')) {
+      break;
     }
 
-    if (!hoVaTen) continue;
-    if (hoVaTen.toLowerCase().includes('tổng') || hoVaTen.includes('#REF!')) continue;
+    // Tính STT dựa trên số học sinh thực tế (bắt đầu từ 1)
+    actualStudentIndex++;
+    const stt = actualStudentIndex; // Dùng index thực tế làm STT
 
     let attendanceStartCol = kyTenColIndex + 1;
     if (headerRowIndex >= 0 && headerRowIndex + 1 < jsonData.length) {
