@@ -14,8 +14,17 @@ export async function GET(request: NextRequest) {
 
     const classes = await getClasses();
     return NextResponse.json({ classes });
-  } catch (error) {
-    return NextResponse.json({ error: 'Lỗi server' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Get classes error:', error);
+    return NextResponse.json(
+      { 
+        error: 'Lỗi server',
+        message: error?.message || 'Unknown error',
+        details: process.env.NODE_ENV === 'development' ? error?.stack : undefined,
+        hint: 'Có thể database chưa được khởi tạo. Vui lòng truy cập /api/init-db'
+      },
+      { status: 500 }
+    );
   }
 }
 

@@ -19,9 +19,14 @@ export async function GET(request: NextRequest) {
         name: user.name,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Auth me error:', error);
     return NextResponse.json(
-      { error: 'Lỗi server' },
+      { 
+        error: 'Lỗi server',
+        message: error?.message || 'Unknown error',
+        details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+      },
       { status: 500 }
     );
   }

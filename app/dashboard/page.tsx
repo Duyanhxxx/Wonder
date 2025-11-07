@@ -21,10 +21,11 @@ export default function DashboardPage() {
   const checkAuth = useCallback(async () => {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
       
       const res = await fetch('/api/auth/me', {
         signal: controller.signal,
+        cache: 'no-store',
       });
       
       clearTimeout(timeoutId);
@@ -35,7 +36,7 @@ export default function DashboardPage() {
         if (res.status === 401) {
           router.push('/login');
         } else {
-          setError('Lỗi xác thực. Vui lòng thử lại.');
+          setError(`Lỗi xác thực (${res.status}). Vui lòng thử lại hoặc kiểm tra database đã được khởi tạo chưa.`);
         }
         return;
       }
@@ -45,9 +46,9 @@ export default function DashboardPage() {
       console.error('Auth check error:', error);
       setLoading(false);
       if (error.name === 'AbortError') {
-        setError('Kết nối timeout. Vui lòng kiểm tra kết nối mạng và thử lại.');
+        setError('Kết nối timeout (30s). Có thể database chưa được khởi tạo. Vui lòng truy cập /api/init-db trước.');
       } else {
-        setError('Lỗi kết nối. Vui lòng thử lại.');
+        setError(`Lỗi kết nối: ${error.message || 'Unknown error'}. Vui lòng thử lại.`);
       }
       // Don't redirect on network errors, let user see the error
     }
@@ -56,10 +57,11 @@ export default function DashboardPage() {
   const loadClasses = useCallback(async () => {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
       
       const res = await fetch('/api/classes', {
         signal: controller.signal,
+        cache: 'no-store',
       });
       
       clearTimeout(timeoutId);
@@ -69,11 +71,17 @@ export default function DashboardPage() {
         setClasses(data.classes || []);
       } else {
         console.error('Error loading classes:', res.status, res.statusText);
+        if (res.status === 500) {
+          setError('Lỗi server. Có thể database chưa được khởi tạo. Vui lòng truy cập /api/init-db trước.');
+        }
       }
     } catch (error: any) {
       console.error('Error loading classes:', error);
       if (error.name === 'AbortError') {
         console.error('Load classes timeout');
+        setError('Kết nối timeout (30s). Có thể database chưa được khởi tạo. Vui lòng truy cập /api/init-db trước.');
+      } else {
+        setError(`Lỗi tải danh sách lớp: ${error.message || 'Unknown error'}`);
       }
     } finally {
       setLoading(false);
@@ -203,24 +211,48 @@ export default function DashboardPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center max-w-md p-6 bg-white rounded-lg shadow-lg">
           <div className="text-red-600 text-xl mb-4">⚠️ Lỗi</div>
-          <div className="text-gray-700 mb-4">{error}</div>
-          <button
-            onClick={() => {
-              setError(null);
-              setLoading(true);
-              checkAuth();
-              loadClasses();
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Thử lại
-          </button>
-          <button
-            onClick={() => router.push('/login')}
-            className="ml-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-          >
-            Đăng nhập lại
-          </button>
+          <div className="text-gray-700 mb-4 text-left">{error}</div>
+          {error.includes('init-db') && (
+            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-left">
+              <div className="text-sm font-semibold text-yellow-800 mb-2">Hướng dẫn khởi tạo database:</div>
+              <div className="text-xs text-yellow-700">
+                1. Truy cập: <code className="bg-yellow-100 px-1 rounded">{window.location.origin}/api/init-db</code>
+                <br />
+                2. Đợi thông báo "Database initialized successfully"
+                <br />
+                3. Quay lại trang này và nhấn "Thử lại"
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => {
+                setError(null);
+                setLoading(true);
+                checkAuth();
+                loadClasses();
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Thử lại
+            </button>
+            <button
+              onClick={() => router.push('/login')}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              Đăng nhập lại
+            </button>
+            {error.includes('init-db') && (
+              <button
+                onClick={() => {
+                  window.open(`${window.location.origin}/api/init-db`, '_blank');
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                Khởi tạo DB
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
