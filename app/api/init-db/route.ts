@@ -6,20 +6,23 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // Kiểm tra POSTGRES_URL trước
-    if (!process.env.POSTGRES_URL) {
+    // Kiểm tra POSTGRES_URL hoặc POSTGRES_URL_NON_POOLING
+    const postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL;
+    if (!postgresUrl) {
       return NextResponse.json(
         { 
-          error: 'POSTGRES_URL environment variable is not set',
-          hint: 'Vui lòng kiểm tra Environment Variables trong Vercel Dashboard'
+          error: 'POSTGRES_URL or POSTGRES_URL_NON_POOLING environment variable is not set',
+          hint: 'Vui lòng kiểm tra Environment Variables trong Vercel Dashboard. Đảm bảo đã thêm POSTGRES_URL hoặc POSTGRES_URL_NON_POOLING từ Neon.'
         },
         { status: 500 }
       );
     }
 
     console.log('Initializing database...');
-    console.log('POSTGRES_URL exists:', !!process.env.POSTGRES_URL);
-    console.log('POSTGRES_URL starts with:', process.env.POSTGRES_URL?.substring(0, 20));
+    console.log('Using POSTGRES_URL_NON_POOLING:', !!process.env.POSTGRES_URL_NON_POOLING);
+    console.log('Using POSTGRES_URL:', !!process.env.POSTGRES_URL);
+    console.log('Connection string (first 50 chars):', postgresUrl.substring(0, 50) + '...');
+    console.log('Is Neon:', postgresUrl.includes('neon.tech'));
 
     // Thêm timeout cho database initialization
     const timeoutPromise = new Promise((_, reject) => {

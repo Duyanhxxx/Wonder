@@ -5,16 +5,22 @@ import { User, Student, ClassInfo } from './db';
 
 // Dynamic import để tránh lỗi khi package chưa được cài đặt
 async function getSql() {
-  // Kiểm tra xem có POSTGRES_URL không (có thể từ Neon hoặc Vercel Postgres)
-  let postgresUrl = process.env.POSTGRES_URL;
+  // Ưu tiên dùng POSTGRES_URL_NON_POOLING cho Neon (tốt hơn cho serverless)
+  // Nếu không có thì dùng POSTGRES_URL
+  let postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL;
   
   if (!postgresUrl) {
-    throw new Error('POSTGRES_URL environment variable is not set');
+    throw new Error('POSTGRES_URL or POSTGRES_URL_NON_POOLING environment variable is not set');
   }
 
   // Loại bỏ channel_binding=require vì Neon serverless không hỗ trợ
   // và có thể gây lỗi connection
   postgresUrl = postgresUrl.replace(/[&?]channel_binding=require/g, '');
+  
+  // Đảm bảo có sslmode=require cho Neon
+  if (postgresUrl.includes('neon.tech') && !postgresUrl.includes('sslmode=')) {
+    postgresUrl += (postgresUrl.includes('?') ? '&' : '?') + 'sslmode=require';
+  }
 
   // Kiểm tra xem có dùng Neon không (Neon connection string thường có neon.tech hoặc aws.neon.tech)
   const isNeon = postgresUrl.includes('neon.tech') || postgresUrl.includes('@neon.tech');
