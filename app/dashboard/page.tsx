@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ClassInfo } from '@/lib/db';
@@ -17,12 +17,7 @@ export default function DashboardPage() {
   const [uploadMessage, setUploadMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    checkAuth();
-    loadClasses();
-  }, []);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const res = await fetch('/api/auth/me');
       if (!res.ok) {
@@ -34,9 +29,9 @@ export default function DashboardPage() {
     } catch (error) {
       router.push('/login');
     }
-  };
+  }, [router]);
 
-  const loadClasses = async () => {
+  const loadClasses = useCallback(async () => {
     try {
       const res = await fetch('/api/classes');
       if (res.ok) {
@@ -48,7 +43,12 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+    loadClasses();
+  }, [checkAuth, loadClasses]);
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -467,11 +467,7 @@ function ClassCard({
 }) {
   const [studentCount, setStudentCount] = useState(0);
 
-  useEffect(() => {
-    loadStudentCount();
-  }, [classInfo.id]);
-
-  const loadStudentCount = async () => {
+  const loadStudentCount = useCallback(async () => {
     try {
       const res = await fetch(`/api/students?classId=${classInfo.id}`);
       if (res.ok) {
@@ -481,7 +477,11 @@ function ClassCard({
     } catch (error) {
       console.error('Error loading student count:', error);
     }
-  };
+  }, [classInfo.id]);
+
+  useEffect(() => {
+    loadStudentCount();
+  }, [loadStudentCount]);
 
   // Tính phần trăm sĩ số
   const attendancePercent = classInfo.siSo > 0 

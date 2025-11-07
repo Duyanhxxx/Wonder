@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import StudentModal from '@/components/StudentModal';
@@ -19,13 +19,7 @@ export default function ClassDetailPage() {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    checkAuth();
-    loadClassInfo();
-    loadStudents();
-  }, [classId]);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const res = await fetch('/api/auth/me');
       if (!res.ok) {
@@ -37,9 +31,9 @@ export default function ClassDetailPage() {
     } catch (error) {
       router.push('/login');
     }
-  };
+  }, [router]);
 
-  const loadClassInfo = async () => {
+  const loadClassInfo = useCallback(async () => {
     try {
       const res = await fetch('/api/classes');
       if (res.ok) {
@@ -50,9 +44,9 @@ export default function ClassDetailPage() {
     } catch (error) {
       console.error('Error loading class info:', error);
     }
-  };
+  }, [classId]);
 
-  const loadStudents = async () => {
+  const loadStudents = useCallback(async () => {
     try {
       const res = await fetch(`/api/students?classId=${classId}`);
       if (res.ok) {
@@ -64,7 +58,13 @@ export default function ClassDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [classId]);
+
+  useEffect(() => {
+    checkAuth();
+    loadClassInfo();
+    loadStudents();
+  }, [classId, checkAuth, loadClassInfo, loadStudents]);
 
   const handleAdd = () => {
     setEditingStudent(null);
